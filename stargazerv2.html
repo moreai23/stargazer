@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>StarGazer — 星座ナビ</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@300;400&display=swap');
+
+  :root {
+    --sky: #020817;
+    --accent: #4fc3f7;
+    --gold: #ffd54f;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--sky);
+    color: #e8f4fd;
+    font-family: 'Noto Sans JP', sans-serif;
+    height: 100dvh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  canvas#sky { position: fixed; inset: 0; z-index: 1; width: 100%; height: 100%; }
+
+  #ui {
+    position: fixed; inset: 0; z-index: 10;
+    pointer-events: none;
+    display: flex; flex-direction: column;
+  }
+
+  #topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px 12px;
+    background: linear-gradient(to bottom, rgba(2,8,23,0.92), transparent);
+  }
+
+  #logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 17px; font-weight: 900; letter-spacing: 3px;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(79,195,247,0.6);
+  }
+
+  #location-badge { font-size: 11px; color: rgba(232,244,253,0.6); text-align: right; line-height: 1.6; }
+
+  #compass-wrap {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+  }
+
+  #compass {
+    width: min(85vw, 360px); height: min(85vw, 360px);
+    border-radius: 50%;
+    border: 1px solid rgba(79,195,247,0.2);
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .dir-label {
+    position: absolute;
+    font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700;
+    color: var(--accent); z-index: 2;
+  }
+  .dir-label.N { top: 5px; left: 50%; transform: translateX(-50%); color: #ff6b6b; }
+  .dir-label.S { bottom: 5px; left: 50%; transform: translateX(-50%); }
+  .dir-label.E { right: 5px; top: 50%; transform: translateY(-50%); }
+  .dir-label.W { left: 5px; top: 50%; transform: translateY(-50%); }
+
+  canvas#compass-canvas { border-radius: 50%; }
+
+  #crosshair {
+    position: absolute; width: 44px; height: 44px; pointer-events: none; z-index: 3;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: rgba(79,195,247,0.5);
+  }
+  #crosshair::before { width: 1px; height: 100%; left: 50%; top: 0; transform: translateX(-50%); }
+  #crosshair::after  { width: 100%; height: 1px; top: 50%; left: 0; transform: translateY(-50%); }
+
+  #info-panel {
+    background: linear-gradient(to top, rgba(2,8,23,0.97), transparent);
+    padding: 14px 20px 28px;
+    pointer-events: all;
+  }
+
+  #object-name {
+    font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 700;
+    color: var(--gold);
+    text-shadow: 0 0 18px rgba(255,213,79,0.5);
+    margin-bottom: 3px; min-height: 28px;
+  }
+
+  #object-desc {
+    font-size: 12px; color: rgba(232,244,253,0.6);
+    line-height: 1.6; margin-bottom: 12px; min-height: 34px;
+  }
+
+  #stats-row { display: flex; gap: 10px; margin-bottom: 10px; }
+
+  .stat-box {
+    flex: 1;
+    background: rgba(79,195,247,0.06);
+    border: 1px solid rgba(79,195,247,0.15);
+    border-radius: 8px; padding: 7px 8px; text-align: center;
+  }
+  .stat-label { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(79,195,247,0.6); margin-bottom: 2px; }
+  .stat-value { font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; color: var(--accent); }
+
+  #nearby-list { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .nearby-tag {
+    font-size: 10px; padding: 3px 10px; border-radius: 20px; border: 1px solid;
+    font-family: 'Orbitron', monospace; letter-spacing: 0.5px;
+  }
+  .nearby-tag.planet  { color: #ffcc80; border-color: rgba(255,204,128,0.4); background: rgba(255,204,128,0.07); }
+  .nearby-tag.star    { color: #b0bec5; border-color: rgba(176,190,197,0.3); background: rgba(176,190,197,0.05); }
+  .nearby-tag.moon    { color: #e0e0e0; border-color: rgba(224,224,224,0.4); background: rgba(224,224,224,0.07); }
+  .nearby-tag.constellation { color: #80cbc4; border-color: rgba(128,203,196,0.3); background: rgba(128,203,196,0.05); }
+  .nearby-tag.sun     { color: #ffee58; border-color: rgba(255,238,88,0.4); background: rgba(255,238,88,0.07); }
+
+  #permission-screen {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--sky);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 32px; text-align: center;
+  }
+  #permission-screen.hidden { display: none; }
+
+  .perm-icon { font-size: 60px; margin-bottom: 20px; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1);opacity:1;} 50%{transform:scale(1.08);opacity:0.8;} }
+
+  .perm-title {
+    font-family: 'Orbitron', monospace; font-size: 22px; font-weight: 900;
+    color: var(--accent); letter-spacing: 2px; margin-bottom: 10px;
+  }
+  .perm-desc { font-size: 13px; color: rgba(232,244,253,0.65); line-height: 1.7; margin-bottom: 28px; max-width: 300px; }
+
+  #start-btn {
+    font-family: 'Orbitron', monospace; font-size: 14px; font-weight: 700;
+    letter-spacing: 3px; color: var(--sky); background: var(--accent);
+    border: none; border-radius: 50px; padding: 15px 34px;
+    cursor: pointer; box-shadow: 0 0 30px rgba(79,195,247,0.4);
+  }
+
+  #demo-badge {
+    position: fixed; top: 50px; right: 14px; z-index: 20;
+    font-size: 10px; letter-spacing: 1px;
+    color: rgba(255,213,79,0.7); background: rgba(255,213,79,0.08);
+    border: 1px solid rgba(255,213,79,0.2); border-radius: 4px;
+    padding: 3px 8px; display: none;
+  }
+
+  .twinkle {
+    position: fixed; border-radius: 50%; background: white;
+    animation: twinkle var(--dur) ease-in-out infinite var(--delay);
+    pointer-events: none; z-index: 2;
+  }
+  @keyframes twinkle {
+    0%,100%{opacity:var(--min-op);transform:scale(1);}
+    50%{opacity:1;transform:scale(1.5);}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="sky"></canvas>
+
+<div id="permission-screen">
+  <div class="perm-icon">🔭</div>
+  <div class="perm-title">STARGAZER</div>
+  <div class="perm-desc">
+    GPS・方位・傾きセンサーを使って<br>
+    星座・惑星・月・恒星を<br>
+    リアルタイムで表示します
+  </div>
+  <button id="start-btn" onclick="startApp()">START ✦</button>
+</div>
+
+<div id="demo-badge">DEMO MODE</div>
+
+<div id="ui">
+  <div id="topbar">
+    <div id="logo">✦ STARGAZER</div>
+    <div id="location-badge">
+      <span id="lat-lon">位置情報取得中...</span><br>
+      <span id="time-display">--:--</span>
+    </div>
+  </div>
+
+  <div id="compass-wrap">
+    <div id="compass">
+      <span class="dir-label N">N</span>
+      <span class="dir-label S">S</span>
+      <span class="dir-label E">E</span>
+      <span class="dir-label W">W</span>
+      <canvas id="compass-canvas"></canvas>
+      <div id="crosshair"></div>
+    </div>
+  </div>
+
+  <div id="info-panel">
+    <div id="object-name">空を探しています...</div>
+    <div id="object-desc">スマホを空に向けてください</div>
+    <div id="stats-row">
+      <div class="stat-box"><div class="stat-label">方位</div><div class="stat-value" id="bearing-val">---°</div></div>
+      <div class="stat-box"><div class="stat-label">仰角</div><div class="stat-value" id="elevation-val">---°</div></div>
+      <div class="stat-box"><div class="stat-label">季節</div><div class="stat-value" id="season-val">---</div></div>
+    </div>
+    <div id="nearby-list"></div>
+  </div>
+</div>
+
+<script>
+const DEG = Math.PI / 180;
+const RAD = 180 / Math.PI;
+
+// ============================================================
+// 天文計算
+// ============================================================
+function jd2000(date) {
+  return (date / 86400000 + 2440587.5) - 2451545.0;
+}
+
+function equatorialToHorizontal(ra, dec, lst, lat) {
+  const H = (lst - ra + 360) % 360;
+  const Hrad = H * DEG, decRad = dec * DEG, latRad = lat * DEG;
+  const sinAlt = Math.sin(decRad)*Math.sin(latRad) + Math.cos(decRad)*Math.cos(latRad)*Math.cos(Hrad);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt))) * RAD;
+  const cosAz = (Math.sin(decRad) - Math.sin(alt*DEG)*Math.sin(latRad)) / (Math.cos(alt*DEG)*Math.cos(latRad));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))) * RAD;
+  if (Math.sin(Hrad) > 0) az = 360 - az;
+  return { az, alt };
+}
+
+function localSiderealTime(date, lon) {
+  const d = jd2000(date);
+  return ((280.46061837 + 360.98564736629 * d) + lon + 360) % 360;
+}
+
+function solveKepler(M, e) {
+  let E = M;
+  for (let i = 0; i < 10; i++) E = M + e * Math.sin(E * DEG) * RAD;
+  return E;
+}
+
+function eclipticToEquatorial(x, y, z) {
+  const e = 23.4393 * DEG;
+  const yeq = y * Math.cos(e) - z * Math.sin(e);
+  const zeq = y * Math.sin(e) + z * Math.cos(e);
+  const ra  = (Math.atan2(yeq, x) * RAD + 360) % 360;
+  const dec = Math.atan2(zeq, Math.sqrt(x*x + yeq*yeq)) * RAD;
+  return { ra, dec };
+}
+
+function getSunPos(d) {
+  const w = 282.9404 + 4.70935e-5 * d;
+  const M = (356.0470 + 0.9856002585 * d + 360) % 360;
+  const e = 0.016709 - 1.151e-9 * d;
+  const E = solveKepler(M, e);
+  const xv = Math.cos(E * DEG) - e;
+  const yv = Math.sqrt(1 - e*e) * Math.sin(E * DEG);
+  const v  = Math.atan2(yv, xv) * RAD;
+  const r  = Math.sqrt(xv*xv + yv*yv);
+  const lon2 = (v + w + 360) % 360;
+  return { x: r*Math.cos(lon2*DEG), y: r*Math.sin(lon2*DEG), z: 0 };
+}
+
+function getSunRADec(d) {
+  const s = getSunPos(d);
+  return eclipticToEquatorial(s.x, s.y, s.z);
+}
+
+function getMoonRADec(d) {
+  const N  = (125.1228 - 0.0529538083 * d + 360) % 360;
+  const w  = (318.0634 + 0.1643573223 * d + 360) % 360;
+  const M  = (115.3654 + 13.0649929509 * d + 360) % 360;
+  const e  = 0.054900, a = 60.2666;
+  const E  = solveKepler(M, e);
+  const xv = a * (Math.cos(E*DEG) - e);
+  const yv = a * Math.sqrt(1-e*e) * Math.sin(E*DEG);
+  const v  = Math.atan2(yv, xv) * RAD;
+  const r  = Math.sqrt(xv*xv + yv*yv);
+  const i  = 5.1454;
+  const Nrad = N*DEG, iRad = i*DEG, vwRad = (v+w)*DEG;
+  const xecl = r*(Math.cos(Nrad)*Math.cos(vwRad) - Math.sin(Nrad)*Math.sin(vwRad)*Math.cos(iRad));
+  const yecl = r*(Math.sin(Nrad)*Math.cos(vwRad) + Math.cos(Nrad)*Math.sin(vwRad)*Math.cos(iRad));
+  const zecl = r*Math.sin(vwRad)*Math.sin(iRad);
+  return eclipticToEquatorial(xecl, yecl, zecl);
+}
+
+function getPlanetRADec(el, d) {
+  const [L0, dL, a, e, i, w, N, dN, dw] = el;
+  const N2 = (N + dN*d + 360) % 360;
+  const w2 = (w + dw*d + 360) % 360;
+  const M  = ((L0 + dL*d) - w2 - N2 + 720) % 360;
+  const E  = solveKepler(M, e);
+  const xv = a*(Math.cos(E*DEG) - e);
+  const yv = a*Math.sqrt(1-e*e)*Math.sin(E*DEG);
+  const v  = Math.atan2(yv, xv)*RAD, r = Math.sqrt(xv*xv+yv*yv);
+  const iRad = i*DEG, N2rad = N2*DEG, vwRad = (v+w2)*DEG;
+  const xecl = r*(Math.cos(N2rad)*Math.cos(vwRad) - Math.sin(N2rad)*Math.sin(vwRad)*Math.cos(iRad));
+  const yecl = r*(Math.sin(N2rad)*Math.cos(vwRad) + Math.cos(N2rad)*Math.sin(vwRad)*Math.cos(iRad));
+  const zecl = r*Math.sin(vwRad)*Math.sin(iRad);
+  const sun = getSunPos(d);
+  return eclipticToEquatorial(xecl - sun.x, yecl - sun.y, zecl - sun.z);
+}
+
+const PLANET_DATA = {
+  '水星': [252.25, 4.09235,  0.387098, 0.205635, 7.005, 77.45779,  48.33167, 0.0003246, 0.0000158],
+  '金星': [181.98, 1.60213,  0.723330, 0.006773, 3.395, 131.5637,  76.68069, 0.000499,  0.0001310],
+  '火星': [355.43, 0.52403,  1.523688, 0.093405, 1.851, 336.0447,  49.55809, 0.0002121, 0.0002990],
+  '木星': [34.33,  0.08309,  5.202561, 0.048498, 1.305, 14.75385, 100.4542,  0.0002765, 0.0001648],
+  '土星': [50.07,  0.03344,  9.554747, 0.055546, 2.485, 92.43194, 113.6634,  0.0004149, 0.0003240],
+};
+const PLANET_COLORS = { '水星':'#b0bec5', '金星':'#fff59d', '火星':'#ff7043', '木星':'#ffe0b2', '土星':'#fff9c4' };
+const PLANET_SIZES  = { '水星':2.5, '金星':3.5, '火星':3, '木星':4, '土星':3.8 };
+
+const NAMED_STARS = [
+  { name:'北極星',    ra:37.95,  dec:89.26,  color:'#fffde7', size:2.8, desc:'北の空の不動点。真北を指す道標の星。' },
+  { name:'シリウス',  ra:101.29, dec:-16.72, color:'#e3f2fd', size:3.5, desc:'全天で最も明るい恒星。おおいぬ座の一等星。' },
+  { name:'カノープス',ra:95.99,  dec:-52.70, color:'#fff9c4', size:3.2, desc:'全天2番目に明るい星。南の空に輝く。' },
+  { name:'アルクトゥルス', ra:213.91, dec:19.18, color:'#ffe0b2', size:3.2, desc:'春の夜空で輝くオレンジ色の巨星。うしかい座。' },
+  { name:'ベガ',      ra:279.23, dec:38.78,  color:'#e8f5e9', size:3.2, desc:'夏の大三角の一角。こと座の一等星。七夕の織姫星。' },
+  { name:'カペラ',    ra:79.17,  dec:45.99,  color:'#fff8e1', size:3.0, desc:'黄色く輝く巨星。ぎょしゃ座の主星。' },
+  { name:'リゲル',    ra:78.63,  dec:-8.20,  color:'#e3f2fd', size:3.0, desc:'オリオン座の青白い超巨星。左足の星。' },
+  { name:'プロキオン', ra:114.83, dec:5.23,  color:'#fff9e6', size:2.8, desc:'こいぬ座の主星。冬の大三角を形成。' },
+  { name:'ベテルギウス', ra:88.79, dec:7.41, color:'#ffccbc', size:3.0, desc:'オリオン座の赤い超巨星。いつか超新星爆発する。' },
+  { name:'アルタイル', ra:297.70, dec:8.87,  color:'#f1f8e9', size:2.8, desc:'夏の大三角の一角。わし座の主星。七夕の彦星。' },
+  { name:'アルデバラン', ra:68.98, dec:16.51, color:'#ffccbc', size:2.8, desc:'おうし座の赤い一等星。ヒアデス星団の近く。' },
+  { name:'スピカ',    ra:201.30, dec:-11.16, color:'#e3f2fd', size:2.8, desc:'おとめ座の青白い一等星。春の大曲線の終点。' },
+  { name:'アンタレス', ra:247.35, dec:-26.43, color:'#ff8a65', size:2.8, desc:'さそり座の赤い心臓。火星のライバルという意味。' },
+  { name:'デネブ',    ra:310.36, dec:45.28,  color:'#e8f5e9', size:2.6, desc:'夏の大三角の一角。はくちょう座の尾の星。' },
+  { name:'レグルス',  ra:152.09, dec:11.97,  color:'#e3f2fd', size:2.6, desc:'しし座の心臓の星。春の空に輝く。' },
+  { name:'フォーマルハウト', ra:344.41, dec:-29.62, color:'#e3f2fd', size:2.6, desc:'秋の孤独な一等星。みなみのうお座。' },
+  { name:'ポルックス', ra:116.33, dec:28.03,  color:'#ffe0b2', size:2.6, desc:'ふたご座の明るい双子星。オレンジ色が特徴。' },
+];
+
+const CONSTELLATIONS = [
+  { name:'オリオン座', desc:'冬の代表。三つ星が目印の狩人。', ra:83,  dec:5,   color:'#4fc3f7',
+    stars:[[0,0],[40,-20],[80,10],[-20,40],[100,40],[30,80],[70,80]], lines:[[0,1],[1,2],[0,3],[2,4],[3,5],[4,6],[5,6]] },
+  { name:'おおぐま座', desc:'北斗七星を含む。北の空に年中見える。', ra:165, dec:56, color:'#81d4fa',
+    stars:[[0,0],[30,10],[60,5],[90,15],[70,45],[40,50],[20,40]], lines:[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0]] },
+  { name:'さそり座', desc:'夏の南天。赤いアンタレスが心臓。', ra:247, dec:-26, color:'#ff8a65',
+    stars:[[0,0],[-20,30],[-10,60],[10,85],[30,100],[50,90],[70,75]], lines:[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]] },
+  { name:'カシオペア座', desc:'W字形。北の空の王妃。', ra:10, dec:60, color:'#ce93d8',
+    stars:[[0,0],[30,-25],[60,0],[90,-25],[120,0]], lines:[[0,1],[1,2],[2,3],[3,4]] },
+  { name:'しし座', desc:'春の夜空。鎌形が獅子の顔。', ra:152, dec:15, color:'#fff176',
+    stars:[[0,0],[30,-20],[60,-10],[80,20],[60,40],[20,50]], lines:[[0,1],[1,2],[2,3],[3,4],[4,5],[5,0]] },
+  { name:'はくちょう座', desc:'夏の大三角。十字形が美しい。', ra:310, dec:45, color:'#a5d6a7',
+    stars:[[0,0],[0,-50],[0,50],[-40,0],[40,0]], lines:[[0,1],[0,2],[0,3],[0,4]] },
+  { name:'ふたご座', desc:'冬の双子。カストルとポルックス。', ra:116, dec:25, color:'#80deea',
+    stars:[[0,0],[50,0],[0,60],[50,60]], lines:[[0,2],[1,3],[0,1]] },
+  { name:'おうし座', desc:'冬の星座。赤いアルデバランが目印。', ra:68, dec:16, color:'#ffab91',
+    stars:[[0,0],[30,15],[50,-5],[20,-20],[-10,-10]], lines:[[0,1],[1,2],[0,3],[0,4]] },
+  { name:'おとめ座', desc:'春の星座。青白いスピカが輝く。', ra:201, dec:-5, color:'#f8bbd0',
+    stars:[[0,0],[30,-10],[50,20],[20,40],[-20,20]], lines:[[0,1],[1,2],[2,3],[3,4],[4,0]] },
+  { name:'みずがめ座', desc:'秋の黄道星座。水を注ぐ男。', ra:325, dec:-12, color:'#64b5f6',
+    stars:[[0,0],[20,30],[40,20],[30,60],[10,80]], lines:[[0,1],[1,2],[1,3],[3,4]] },
+];
+
+// ============================================================
+// App State
+// ============================================================
+let bearing = 0, elevation = 45;
+let lat = 35.68, lon = 139.69;
+let demoMode = false, demoAngle = 0;
+let orientationReceived = false;
+
+const compassCanvas = document.getElementById('compass-canvas');
+const compassCtx    = compassCanvas.getContext('2d');
+const skyCanvas     = document.getElementById('sky');
+const skyCtx        = skyCanvas.getContext('2d');
+
+function getMoonAge(date) {
+  const known = new Date('2000-01-06T18:14:00Z');
+  const cycle = 29.53058867;
+  return ((date - known) / 86400000 % cycle + cycle) % cycle;
+}
+
+function getAllCelestialObjects() {
+  const now = new Date();
+  const d   = jd2000(now);
+  const lst = localSiderealTime(now, lon);
+  const objects = [];
+
+  // 月
+  const moonRD = getMoonRADec(d);
+  const moonHz = equatorialToHorizontal(moonRD.ra, moonRD.dec, lst, lat);
+  const age    = getMoonAge(now);
+  objects.push({ name:'月', type:'moon', az:moonHz.az, alt:moonHz.alt,
+    color:'#e0e0e0', size:5, desc:`月齢 ${age.toFixed(1)} 日` });
+
+  // 太陽
+  const sunRD = getSunRADec(d);
+  const sunHz = equatorialToHorizontal(sunRD.ra, sunRD.dec, lst, lat);
+  objects.push({ name:'太陽', type:'sun', az:sunHz.az, alt:sunHz.alt,
+    color:'#ffee58', size:6, desc:'太陽 ☀️ — 直接見ないでください！' });
+
+  // 惑星
+  for (const [pname, el] of Object.entries(PLANET_DATA)) {
+    const rd = getPlanetRADec(el, d);
+    const hz = equatorialToHorizontal(rd.ra, rd.dec, lst, lat);
+    objects.push({ name:pname, type:'planet', az:hz.az, alt:hz.alt,
+      color:PLANET_COLORS[pname], size:PLANET_SIZES[pname],
+      desc:`${pname} (惑星)` });
+  }
+
+  // 恒星
+  for (const s of NAMED_STARS) {
+    const hz = equatorialToHorizontal(s.ra, s.dec, lst, lat);
+    objects.push({ ...s, type:'star', az:hz.az, alt:hz.alt });
+  }
+
+  // 星座
+  for (const c of CONSTELLATIONS) {
+    const hz = equatorialToHorizontal(c.ra, c.dec, lst, lat);
+    objects.push({ name:c.name, type:'constellation', az:hz.az, alt:hz.alt,
+      color:c.color, size:2, desc:c.desc, stars:c.stars, lines:c.lines });
+  }
+
+  return objects;
+}
+
+function getNearbyObjects(objects, range) {
+  return objects
+    .filter(o => {
+      const da = Math.abs(((o.az - bearing + 540) % 360) - 180);
+      const de = Math.abs(o.alt - elevation);
+      o._dist = Math.sqrt(da*da + de*de);
+      return o._dist < range && o.alt > -15;
+    })
+    .sort((a,b) => a._dist - b._dist);
+}
+
+// ============================================================
+// Start
+// ============================================================
+function startApp() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(p => { if (p === 'granted') setupOrientation(); else startDemo(); })
+      .catch(() => startDemo());
+  } else if (window.DeviceOrientationEvent) {
+    setupOrientation();
+    setTimeout(() => { if (!orientationReceived) startDemo(); }, 2500);
+  } else {
+    startDemo();
+  }
+
+  document.getElementById('permission-screen').classList.add('hidden');
+  createTwinklingStars();
+  updateTime();
+  setInterval(updateTime, 1000);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+        document.getElementById('lat-lon').textContent =
+          `${lat.toFixed(2)}°N  ${lon.toFixed(2)}°E`;
+        lastCalc = 0; // 位置更新後すぐ再計算
+      },
+      () => { document.getElementById('lat-lon').textContent = '東京（デフォルト）'; },
+      { timeout: 8000 }
+    );
+  }
+
+  resizeCanvases();
+  window.addEventListener('resize', resizeCanvases);
+  render();
+}
+
+function setupOrientation() {
+  window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+  window.addEventListener('deviceorientation', handleOrientation, true);
+}
+
+function handleOrientation(e) {
+  orientationReceived = true;
+  if (e.webkitCompassHeading !== undefined) {
+    bearing = e.webkitCompassHeading;
+  } else if (e.alpha !== null) {
+    bearing = (360 - e.alpha) % 360;
+  }
+  if (e.beta !== null) {
+    elevation = Math.max(-10, Math.min(90, 90 - Math.abs(e.beta)));
+  }
+}
+
+function startDemo() {
+  demoMode = true;
+  document.getElementById('demo-badge').style.display = 'block';
+  document.getElementById('lat-lon').textContent = '東京（デモ）';
+  animateDemo();
+}
+
+function animateDemo() {
+  demoAngle += 0.004;
+  bearing   = (demoAngle * 20) % 360;
+  elevation = 38 + Math.sin(demoAngle * 0.6) * 28;
+  requestAnimationFrame(animateDemo);
+}
+
+// ============================================================
+// Canvas
+// ============================================================
+function resizeCanvases() {
+  const s = window.devicePixelRatio || 1;
+  skyCanvas.width  = window.innerWidth  * s;
+  skyCanvas.height = window.innerHeight * s;
+  skyCtx.scale(s, s);
+  const size = compassCanvas.parentElement.clientWidth - 2;
+  compassCanvas.width  = size * s;
+  compassCanvas.height = size * s;
+  compassCanvas.style.width  = size + 'px';
+  compassCanvas.style.height = size + 'px';
+  compassCtx.scale(s, s);
+}
+
+const BG_STARS = Array.from({length:180}, () => ({
+  x: Math.random(), y: Math.random(),
+  r: Math.random() * 1.1 + 0.2,
+  op: Math.random() * 0.5 + 0.15,
+  spd: Math.random() * 0.00007
+}));
+
+function drawSky() {
+  const W = window.innerWidth, H = window.innerHeight;
+  skyCtx.clearRect(0, 0, W, H);
+  for (const s of BG_STARS) {
+    s.x = (s.x + s.spd) % 1;
+    skyCtx.beginPath();
+    skyCtx.arc(s.x*W, s.y*H, s.r, 0, Math.PI*2);
+    skyCtx.fillStyle = `rgba(210,225,255,${s.op})`;
+    skyCtx.fill();
+  }
+}
+
+function drawCompass(size, objects) {
+  const ctx = compassCtx;
+  const cx = size/2, cy = size/2, r = size/2 - 2;
+  ctx.clearRect(0, 0, size, size);
+
+  // Tick marks
+  for (let i = 0; i < 72; i++) {
+    const angle = (i/72)*Math.PI*2 - bearing*DEG;
+    const major = i%9===0;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.sin(angle)*(r-1),       cy - Math.cos(angle)*(r-1));
+    ctx.lineTo(cx + Math.sin(angle)*(r-1-(major?13:5)), cy - Math.cos(angle)*(r-1-(major?13:5)));
+    ctx.strokeStyle = major ? 'rgba(79,195,247,0.6)' : 'rgba(79,195,247,0.18)';
+    ctx.lineWidth = major ? 1.5 : 0.7;
+    ctx.stroke();
+  }
+
+  const visR = r * 0.72;
+
+  for (const obj of objects) {
+    if (obj.alt < -20) continue;
+    const dAz  = ((obj.az - bearing + 540) % 360) - 180;
+    const dAlt = obj.alt - elevation;
+    if (Math.abs(dAz) > 80 || Math.abs(dAlt) > 80) continue;
+
+    const px = cx + (dAz/80)*visR;
+    const py = cy - (dAlt/80)*visR;
+    const dist = Math.sqrt(dAz*dAz + dAlt*dAlt);
+    const inFocus = dist < 18;
+    const alpha = inFocus ? 1 : Math.max(0.18, 1 - dist/80);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    if (obj.type === 'constellation') {
+      const scale  = (visR/80)*0.45;
+      const oAngle = -(bearing - obj.az)*DEG;
+      ctx.globalAlpha = alpha * 0.38;
+      for (const [i, j] of obj.lines) {
+        const [x1,y1] = rotCP(obj.stars[i], oAngle, scale);
+        const [x2,y2] = rotCP(obj.stars[j], oAngle, scale);
+        ctx.beginPath();
+        ctx.moveTo(cx+x1+dAz/80*visR, cy+y1-dAlt/80*visR);
+        ctx.lineTo(cx+x2+dAz/80*visR, cy+y2-dAlt/80*visR);
+        ctx.strokeStyle = obj.color;
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = alpha * 0.65;
+      for (const [sx,sy] of obj.stars) {
+        const [rx,ry] = rotCP([sx,sy], oAngle, scale);
+        ctx.beginPath();
+        ctx.arc(cx+rx+dAz/80*visR, cy+ry-dAlt/80*visR, 1.3, 0, Math.PI*2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+      }
+      if (inFocus || dist < 30) {
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.font = `${inFocus?'bold ':''} ${inFocus?10:8}px 'Noto Sans JP'`;
+        ctx.fillStyle = obj.color;
+        ctx.fillText(obj.name, px+6, py-6);
+      }
+    } else {
+      // Point object
+      const sz = inFocus ? obj.size + 1.5 : obj.size;
+
+      if (obj.type === 'sun') {
+        // Sun glow
+        const g = ctx.createRadialGradient(px,py,0,px,py,sz*3);
+        g.addColorStop(0,'rgba(255,238,88,0.9)');
+        g.addColorStop(0.4,'rgba(255,238,88,0.3)');
+        g.addColorStop(1,'rgba(255,238,88,0)');
+        ctx.beginPath(); ctx.arc(px,py,sz*3,0,Math.PI*2);
+        ctx.fillStyle = g; ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(px, py, sz, 0, Math.PI*2);
+      ctx.fillStyle = obj.color || '#fff';
+      ctx.shadowBlur  = inFocus ? 12 : 5;
+      ctx.shadowColor = obj.color || '#fff';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Label
+      const showLabel = inFocus || (dist < 32 && obj.type !== 'star') || (dist < 45 && (obj.type==='star' || obj.type==='moon'));
+      if (showLabel) {
+        ctx.font = `${inFocus?'bold ':''} ${inFocus?11:9}px 'Noto Sans JP'`;
+        ctx.fillStyle = obj.color || '#fff';
+        ctx.globalAlpha = alpha * 0.95;
+        ctx.shadowBlur = 3;
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.fillText(obj.name, px + sz + 4, py - sz);
+        ctx.shadowBlur = 0;
+      }
+    }
+    ctx.restore();
+  }
+
+  // Center dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(79,195,247,0.8)';
+  ctx.fill();
+}
+
+function rotCP([x, y], angle, scale) {
+  const cx2 = x-40, cy2 = y-40;
+  return [
+    (cx2*Math.cos(angle) - cy2*Math.sin(angle)) * scale,
+    (cx2*Math.sin(angle) + cy2*Math.cos(angle)) * scale
+  ];
+}
+
+// ============================================================
+// Info panel
+// ============================================================
+function updateInfoPanel(objects) {
+  const nearby  = getNearbyObjects(objects, 28);
+  const closest = nearby[0];
+
+  if (closest && closest._dist < 22) {
+    document.getElementById('object-name').textContent = `✦ ${closest.name}`;
+    document.getElementById('object-desc').textContent = closest.desc || '';
+    document.getElementById('object-name').style.color =
+      closest._dist < 10 ? '#ffd54f' : 'rgba(255,213,79,0.65)';
+  } else {
+    document.getElementById('object-name').textContent = '空を探しています...';
+    document.getElementById('object-desc').textContent = 'スマホを空に向けてください';
+    document.getElementById('object-name').style.color = 'rgba(232,244,253,0.35)';
+  }
+
+  // Tags
+  const tags = getNearbyObjects(objects, 55).filter(o => o.alt > -5).slice(0, 8);
+  const list = document.getElementById('nearby-list');
+  list.innerHTML = '';
+  for (const o of tags) {
+    const tag = document.createElement('span');
+    tag.className = `nearby-tag ${o.type}`;
+    tag.textContent = o.name;
+    list.appendChild(tag);
+  }
+
+  document.getElementById('bearing-val').textContent   = `${Math.round(bearing)}°`;
+  document.getElementById('elevation-val').textContent = `${Math.round(elevation)}°`;
+  document.getElementById('season-val').textContent    = getSeason();
+}
+
+function getSeason() {
+  const m = new Date().getMonth()+1;
+  if(m>=3&&m<=5)return'春'; if(m>=6&&m<=8)return'夏';
+  if(m>=9&&m<=11)return'秋'; return'冬';
+}
+
+// ============================================================
+// Render loop
+// ============================================================
+let lastCalc = 0, cachedObjects = [];
+
+function render() {
+  const now = Date.now();
+  if (now - lastCalc > 5000) {
+    cachedObjects = getAllCelestialObjects();
+    lastCalc = now;
+  }
+  const size = compassCanvas.parentElement.clientWidth - 2;
+  drawSky();
+  drawCompass(size, cachedObjects);
+  updateInfoPanel(cachedObjects);
+  requestAnimationFrame(render);
+}
+
+function updateTime() {
+  const now = new Date();
+  document.getElementById('time-display').textContent =
+    `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} JST`;
+}
+
+function createTwinklingStars() {
+  for (let i = 0; i < 35; i++) {
+    const el = document.createElement('div');
+    el.className = 'twinkle';
+    const sz = Math.random()*2+0.8, op = Math.random()*0.35+0.15;
+    el.style.cssText = `width:${sz}px;height:${sz}px;
+      left:${Math.random()*100}vw;top:${Math.random()*55}vh;
+      --dur:${2+Math.random()*4}s;--delay:${-Math.random()*5}s;
+      --min-op:${op};opacity:${op};`;
+    document.body.appendChild(el);
+  }
+}
+</script>
+</body>
+</html>
