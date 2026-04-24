@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>StarGazer — 星座ナビ</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@300;400&display=swap');
+:root{--sky:#020817;--accent:#4fc3f7;--gold:#ffd54f;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--sky);color:#e8f4fd;font-family:'Noto Sans JP',sans-serif;height:100dvh;overflow:hidden;user-select:none;}
+canvas#sky{position:fixed;inset:0;z-index:1;width:100%;height:100%;}
+#ui{position:fixed;inset:0;z-index:10;pointer-events:none;display:flex;flex-direction:column;}
+#topbar{display:flex;justify-content:space-between;align-items:center;padding:14px 18px 10px;background:linear-gradient(to bottom,rgba(2,8,23,0.92),transparent);}
+#logo{font-family:'Orbitron',monospace;font-size:16px;font-weight:900;letter-spacing:3px;color:var(--accent);text-shadow:0 0 20px rgba(79,195,247,0.6);}
+#location-badge{font-size:10px;color:rgba(232,244,253,0.6);text-align:right;line-height:1.6;}
+#skyview-wrap{flex:1;position:relative;overflow:hidden;}
+canvas#skyview{position:absolute;inset:0;width:100%;height:100%;}
+#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:50px;height:50px;pointer-events:none;z-index:6;}
+#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(79,195,247,0.4);}
+#crosshair::before{width:1px;height:100%;left:50%;top:0;transform:translateX(-50%);}
+#crosshair::after{width:100%;height:1px;top:50%;left:0;transform:translateY(-50%);}
+.ch-circle{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;border:1px solid rgba(79,195,247,0.4);}
+#info-panel{background:linear-gradient(to top,rgba(2,8,23,0.97),transparent);padding:12px 18px 24px;pointer-events:all;}
+#object-name{font-family:'Orbitron',monospace;font-size:19px;font-weight:700;color:var(--gold);text-shadow:0 0 18px rgba(255,213,79,0.5);margin-bottom:3px;min-height:26px;}
+#object-desc{font-size:11px;color:rgba(232,244,253,0.6);line-height:1.6;margin-bottom:10px;min-height:32px;}
+#stats-row{display:flex;gap:8px;margin-bottom:9px;}
+.stat-box{flex:1;background:rgba(79,195,247,0.06);border:1px solid rgba(79,195,247,0.15);border-radius:8px;padding:6px 7px;text-align:center;}
+.stat-label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(79,195,247,0.6);margin-bottom:2px;}
+.stat-value{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--accent);}
+#nearby-list{display:flex;gap:7px;flex-wrap:wrap;}
+.nearby-tag{font-size:10px;padding:3px 9px;border-radius:20px;border:1px solid;font-family:'Orbitron',monospace;letter-spacing:0.5px;cursor:pointer;pointer-events:all;}
+.nearby-tag.planet{color:#ffcc80;border-color:rgba(255,204,128,0.4);background:rgba(255,204,128,0.07);}
+.nearby-tag.star{color:#b0bec5;border-color:rgba(176,190,197,0.3);background:rgba(176,190,197,0.05);}
+.nearby-tag.moon{color:#e0e0e0;border-color:rgba(224,224,224,0.4);background:rgba(224,224,224,0.07);}
+.nearby-tag.constellation{color:#80cbc4;border-color:rgba(128,203,196,0.3);background:rgba(128,203,196,0.05);}
+.nearby-tag.sun{color:#ffee58;border-color:rgba(255,238,88,0.4);background:rgba(255,238,88,0.07);}
+
+/* タップ詳細パネル */
+#detail-panel{
+  position:fixed;bottom:0;left:0;right:0;z-index:50;
+  background:rgba(2,8,23,0.97);
+  border-top:1px solid rgba(79,195,247,0.25);
+  border-radius:20px 20px 0 0;
+  padding:20px 22px 36px;
+  transform:translateY(100%);
+  transition:transform 0.35s cubic-bezier(.32,.72,0,1);
+  pointer-events:all;
+}
+#detail-panel.open{transform:translateY(0);}
+#detail-close{position:absolute;top:14px;right:18px;font-size:22px;color:rgba(232,244,253,0.4);background:none;border:none;cursor:pointer;padding:4px 8px;}
+#detail-icon{font-size:40px;margin-bottom:10px;}
+#detail-name{font-family:'Orbitron',monospace;font-size:22px;font-weight:900;color:var(--gold);margin-bottom:4px;}
+#detail-name-en{font-size:11px;letter-spacing:2px;color:rgba(79,195,247,0.7);margin-bottom:12px;font-family:'Orbitron',monospace;}
+#detail-desc{font-size:13px;color:rgba(232,244,253,0.75);line-height:1.8;margin-bottom:14px;}
+#detail-stats{display:flex;gap:10px;}
+.dstat{flex:1;background:rgba(79,195,247,0.06);border:1px solid rgba(79,195,247,0.15);border-radius:10px;padding:10px;text-align:center;}
+.dstat-label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(79,195,247,0.6);margin-bottom:4px;}
+.dstat-value{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--accent);}
+
+/* Permission */
+#permission-screen{position:fixed;inset:0;z-index:100;background:var(--sky);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;}
+#permission-screen.hidden{display:none;}
+.perm-icon{font-size:60px;margin-bottom:18px;animation:pulse 2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.08);opacity:0.8;}}
+.perm-title{font-family:'Orbitron',monospace;font-size:22px;font-weight:900;color:var(--accent);letter-spacing:2px;margin-bottom:10px;}
+.perm-desc{font-size:13px;color:rgba(232,244,253,0.65);line-height:1.7;margin-bottom:26px;max-width:300px;}
+#start-btn{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;letter-spacing:3px;color:var(--sky);background:var(--accent);border:none;border-radius:50px;padding:14px 32px;cursor:pointer;box-shadow:0 0 30px rgba(79,195,247,0.4);}
+#demo-badge{position:fixed;top:48px;right:12px;z-index:20;font-size:10px;letter-spacing:1px;color:rgba(255,213,79,0.7);background:rgba(255,213,79,0.08);border:1px solid rgba(255,213,79,0.2);border-radius:4px;padding:3px 8px;display:none;}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<div id="permission-screen">
+  <div class="perm-icon">🔭</div>
+  <div class="perm-title">STARGAZER</div>
+  <div class="perm-desc">GPS・方位・傾きセンサーを使って<br>星・惑星・月・天の川を<br>リアルタイムで表示します</div>
+  <button id="start-btn" onclick="startApp()">START ✦</button>
+</div>
+
+<div id="demo-badge">DEMO MODE</div>
+<div id="compass-warn" style="position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:25;font-size:11px;color:rgba(255,100,100,0.9);background:rgba(60,10,10,0.85);border:1px solid rgba(255,100,100,0.4);border-radius:6px;padding:5px 12px;display:none;font-family:'Noto Sans JP',sans-serif;"></div>
+
+<div id="ui">
+  <div id="topbar">
+    <div id="logo">✦ STARGAZER</div>
+    <div id="location-badge">
+      <span id="lat-lon">位置情報取得中...</span><br>
+      <span id="time-display">--:--</span>
+    </div>
+  </div>
+  <div id="skyview-wrap">
+    <canvas id="skyview"></canvas>
+    <div id="crosshair"><div class="ch-circle"></div></div>
+  </div>
+  <div id="info-panel">
+    <div id="object-name">空を探しています...</div>
+    <div id="object-desc">スマホを空に向けてください</div>
+    <div id="stats-row">
+      <div class="stat-box"><div class="stat-label">方位</div><div class="stat-value" id="bearing-val">---°</div></div>
+      <div class="stat-box"><div class="stat-label">仰角</div><div class="stat-value" id="elevation-val">---°</div></div>
+      <div class="stat-box"><div class="stat-label">季節</div><div class="stat-value" id="season-val">---</div></div>
+    </div>
+    <div id="nearby-list"></div>
+  </div>
+</div>
+
+<!-- タップ詳細パネル -->
+<div id="detail-panel">
+  <button id="detail-close" onclick="closeDetail()">✕</button>
+  <div id="detail-icon">⭐</div>
+  <div id="detail-name">---</div>
+  <div id="detail-name-en">---</div>
+  <div id="detail-desc">---</div>
+  <div id="detail-stats">
+    <div class="dstat"><div class="dstat-label">方位</div><div class="dstat-value" id="d-az">---°</div></div>
+    <div class="dstat"><div class="dstat-label">高度</div><div class="dstat-value" id="d-alt">---°</div></div>
+    <div class="dstat"><div class="dstat-label">等級</div><div class="dstat-value" id="d-mag">---</div></div>
+  </div>
+</div>
+
+<script>
+const DEG=Math.PI/180, RAD=180/Math.PI;
+
+// ============================================================
+// 天文計算
+// ============================================================
+function jd2000(d){return(d/86400000+2440587.5)-2451545.0;}
+function equatorialToHorizontal(ra,dec,lst,lat){
+  const H=(lst-ra+360)%360,Hr=H*DEG,dr=dec*DEG,lr=lat*DEG;
+  const sinAlt=Math.sin(dr)*Math.sin(lr)+Math.cos(dr)*Math.cos(lr)*Math.cos(Hr);
+  const alt=Math.asin(Math.max(-1,Math.min(1,sinAlt)))*RAD;
+  const cosAz=(Math.sin(dr)-Math.sin(alt*DEG)*Math.sin(lr))/(Math.cos(alt*DEG)*Math.cos(lr));
+  let az=Math.acos(Math.max(-1,Math.min(1,cosAz)))*RAD;
+  if(Math.sin(Hr)>0)az=360-az;
+  return{az,alt};
+}
+function localSiderealTime(date,lon){
+  const d=jd2000(date);
+  return((280.46061837+360.98564736629*d)+lon+360)%360;
+}
+function solveKepler(M,e){let E=M;for(let i=0;i<10;i++)E=M+e*Math.sin(E*DEG)*RAD;return E;}
+function eclipticToEquatorial(x,y,z){
+  const e=23.4393*DEG,yeq=y*Math.cos(e)-z*Math.sin(e),zeq=y*Math.sin(e)+z*Math.cos(e);
+  return{ra:(Math.atan2(yeq,x)*RAD+360)%360,dec:Math.atan2(zeq,Math.sqrt(x*x+yeq*yeq))*RAD};
+}
+function getSunPos(d){
+  const w=282.9404+4.70935e-5*d,M=(356.0470+0.9856002585*d+360)%360,e=0.016709-1.151e-9*d;
+  const E=solveKepler(M,e),xv=Math.cos(E*DEG)-e,yv=Math.sqrt(1-e*e)*Math.sin(E*DEG);
+  const v=Math.atan2(yv,xv)*RAD,r=Math.sqrt(xv*xv+yv*yv),l=(v+w+360)%360;
+  return{x:r*Math.cos(l*DEG),y:r*Math.sin(l*DEG),z:0};
+}
+function getMoonRADec(d){
+  const N=(125.1228-0.0529538083*d+360)%360,w=(318.0634+0.1643573223*d+360)%360;
+  const M=(115.3654+13.0649929509*d+360)%360,e=0.054900,a=60.2666;
+  const E=solveKepler(M,e),xv=a*(Math.cos(E*DEG)-e),yv=a*Math.sqrt(1-e*e)*Math.sin(E*DEG);
+  const v=Math.atan2(yv,xv)*RAD,r=Math.sqrt(xv*xv+yv*yv),i=5.1454;
+  const Nr=N*DEG,ir=i*DEG,vwr=(v+w)*DEG;
+  const xe=r*(Math.cos(Nr)*Math.cos(vwr)-Math.sin(Nr)*Math.sin(vwr)*Math.cos(ir));
+  const ye=r*(Math.sin(Nr)*Math.cos(vwr)+Math.cos(Nr)*Math.sin(vwr)*Math.cos(ir));
+  const ze=r*Math.sin(vwr)*Math.sin(ir);
+  return eclipticToEquatorial(xe,ye,ze);
+}
+function getMoonAge(date){return((date-new Date('2000-01-06T18:14:00Z'))/86400000%29.53058867+29.53058867)%29.53058867;}
+function getMoonPhaseIcon(age){
+  if(age<1.5)return'🌑';if(age<5.5)return'🌒';if(age<9.5)return'🌓';
+  if(age<12.5)return'🌔';if(age<15.5)return'🌕';if(age<18.5)return'🌖';
+  if(age<22.5)return'🌗';if(age<26.5)return'🌘';return'🌑';
+}
+const PLANET_EL={
+  '水星':[252.25,4.09235,0.387098,0.205635,7.005,77.45779,48.33167,0.0003246,0.0000158],
+  '金星':[181.98,1.60213,0.723330,0.006773,3.395,131.5637,76.68069,0.000499,0.0001310],
+  '火星':[355.43,0.52403,1.523688,0.093405,1.851,336.0447,49.55809,0.0002121,0.0002990],
+  '木星':[34.33,0.08309,5.202561,0.048498,1.305,14.75385,100.4542,0.0002765,0.0001648],
+  '土星':[50.07,0.03344,9.554747,0.055546,2.485,92.43194,113.6634,0.0004149,0.0003240],
+};
+const PCOL={'水星':'#b0bec5','金星':'#fff59d','火星':'#ff7043','木星':'#ffe0b2','土星':'#fff9c4'};
+const PSIZ={'水星':2.8,'金星':4.2,'火星':3.5,'木星':5.5,'土星':5};
+const PDESC={
+  '水星':'太陽に最も近い惑星。昼夜の温度差が激しく、大気がほぼない。公転周期は約88日。',
+  '金星':'地球のすぐ内側を回る惑星。明けの明星・宵の明星として知られる。全天で月の次に明るい天体。',
+  '火星':'赤い惑星。酸化鉄が表面を赤く染める。太陽系最大の火山オリンポス山がある。',
+  '木星':'太陽系最大の惑星。大赤斑と呼ばれる巨大嵐が数百年続く。95個以上の衛星を持つ。',
+  '土星':'美しい環が特徴。環は無数の氷と岩石からできている。密度が水より低い惑星。',
+};
+function getPlanetRADec(el,d){
+  const[L0,dL,a,e,i,w,N,dN,dw]=el;
+  const N2=(N+dN*d+360)%360,w2=(w+dw*d+360)%360,M=((L0+dL*d)-w2-N2+720)%360;
+  const E=solveKepler(M,e),xv=a*(Math.cos(E*DEG)-e),yv=a*Math.sqrt(1-e*e)*Math.sin(E*DEG);
+  const v=Math.atan2(yv,xv)*RAD,r=Math.sqrt(xv*xv+yv*yv);
+  const ir=i*DEG,N2r=N2*DEG,vwr=(v+w2)*DEG;
+  const xe=r*(Math.cos(N2r)*Math.cos(vwr)-Math.sin(N2r)*Math.sin(vwr)*Math.cos(ir));
+  const ye=r*(Math.sin(N2r)*Math.cos(vwr)+Math.cos(N2r)*Math.sin(vwr)*Math.cos(ir));
+  const ze=r*Math.sin(vwr)*Math.sin(ir);
+  const s=getSunPos(d);
+  return eclipticToEquatorial(xe-s.x,ye-s.y,ze-s.z);
+}
+
+// ============================================================
+// 恒星カタログ 約200星
+// ============================================================
+const STAR_CATALOG=[
+  {name:'シリウス',nameEn:'Sirius',ra:101.287,dec:-16.716,mag:-1.46,color:'#cce8ff',desc:'全天で最も明るい恒星。おおいぬ座の主星。地球から8.6光年。青白く輝く主系列星。'},
+  {name:'カノープス',nameEn:'Canopus',ra:95.988,dec:-52.696,mag:-0.74,color:'#fffde7',desc:'全天2番目に明るい星。りゅうこつ座の主星。地球から310光年の超巨星。'},
+  {name:'アルクトゥルス',nameEn:'Arcturus',ra:213.915,dec:19.182,mag:-0.05,color:'#ffe0b2',desc:'春の夜空で最も明るい星。うしかい座の主星。オレンジ色の巨星。地球から37光年。'},
+  {name:'ベガ',nameEn:'Vega',ra:279.235,dec:38.784,mag:0.03,color:'#e8f5e9',desc:'夏の大三角の一角。こと座の主星。七夕の織姫星。地球から25光年の青白い星。'},
+  {name:'カペラ',nameEn:'Capella',ra:79.172,dec:45.998,mag:0.08,color:'#fff8e1',desc:'ぎょしゃ座の主星。実は2つの黄色巨星の連星。地球から43光年。'},
+  {name:'リゲル',nameEn:'Rigel',ra:78.634,dec:-8.201,mag:0.13,color:'#ddeeff',desc:'オリオン座の青白い超巨星。左足の星。地球から860光年。太陽の約7万倍の明るさ。'},
+  {name:'プロキオン',nameEn:'Procyon',ra:114.825,dec:5.225,mag:0.38,color:'#fffde7',desc:'こいぬ座の主星。冬の大三角を構成。地球から11.5光年と比較的近い。'},
+  {name:'アケルナル',nameEn:'Achernar',ra:24.429,dec:-57.237,mag:0.46,color:'#ddeeff',desc:'エリダヌス座の終端の星。自転が速すぎて扁平な形をしている。南天の一等星。'},
+  {name:'ベテルギウス',nameEn:'Betelgeuse',ra:88.793,dec:7.407,mag:0.50,color:'#ffccbc',desc:'オリオン座の赤色超巨星。右肩の星。いつか超新星爆発する。地球から700光年。'},
+  {name:'ハダル',nameEn:'Hadar',ra:210.956,dec:-60.373,mag:0.60,color:'#ddeeff',desc:'ケンタウルス座β星。南十字星の近くで輝く青白い巨星。地球から390光年。'},
+  {name:'アルタイル',nameEn:'Altair',ra:297.696,dec:8.868,mag:0.77,color:'#f1f8e9',desc:'夏の大三角の一角。わし座の主星。七夕の彦星。地球から17光年と非常に近い。'},
+  {name:'アルデバラン',nameEn:'Aldebaran',ra:68.980,dec:16.509,mag:0.85,color:'#ffccbc',desc:'おうし座の主星。オレンジ色の巨星。ヒアデス星団の方向に輝く。地球から65光年。'},
+  {name:'アクルックス',nameEn:'Acrux',ra:186.650,dec:-63.099,mag:0.87,color:'#ddeeff',desc:'南十字座の最も明るい星。実は複数の星からなる多重星。地球から320光年。'},
+  {name:'スピカ',nameEn:'Spica',ra:201.298,dec:-11.161,mag:0.97,color:'#ddeeff',desc:'おとめ座の主星。春の大曲線の終点。青白く輝く連星。地球から250光年。'},
+  {name:'アンタレス',nameEn:'Antares',ra:247.352,dec:-26.432,mag:1.06,color:'#ff8a65',desc:'さそり座の心臓の星。「火星のライバル」を意味する。赤色超巨星。地球から550光年。'},
+  {name:'フォーマルハウト',nameEn:'Fomalhaut',ra:344.413,dec:-29.622,mag:1.16,color:'#ddeeff',desc:'みなみのうお座の主星。秋の孤独な一等星。惑星円盤が観測されている。地球から25光年。'},
+  {name:'ポルックス',nameEn:'Pollux',ra:116.329,dec:28.026,mag:1.14,color:'#ffe0b2',desc:'ふたご座の明るい方の双子星。オレンジ色の巨星。惑星が発見されている。地球から34光年。'},
+  {name:'デネブ',nameEn:'Deneb',ra:310.358,dec:45.280,mag:1.25,color:'#e8f5e9',desc:'夏の大三角の一角。はくちょう座の尾の星。超巨星で地球から2600光年と遠い。'},
+  {name:'レグルス',nameEn:'Regulus',ra:152.093,dec:11.967,mag:1.36,color:'#ddeeff',desc:'しし座の心臓の星。春の夜空で輝く青白い星。高速自転で扁平形。地球から79光年。'},
+  {name:'アダラ',nameEn:'Adhara',ra:104.656,dec:-28.972,mag:1.50,color:'#ddeeff',desc:'おおいぬ座ε星。シリウスの近くで輝く青白い超巨星。地球から430光年。'},
+  {name:'カストル',nameEn:'Castor',ra:113.650,dec:31.888,mag:1.57,color:'#ddeeff',desc:'ふたご座α星。実は6つの星からなる多重星系。地球から51光年。'},
+  {name:'ガクルックス',nameEn:'Gacrux',ra:187.792,dec:-57.113,mag:1.59,color:'#ffccbc',desc:'南十字座γ星。赤みがかった巨星。南十字星を構成する4星のひとつ。'},
+  {name:'ベルラトリックス',nameEn:'Bellatrix',ra:81.283,dec:6.350,mag:1.64,color:'#ddeeff',desc:'オリオン座γ星。右肩の星。「女戦士」を意味する。地球から250光年の青色巨星。'},
+  {name:'エルナト',nameEn:'Elnath',ra:81.573,dec:28.608,mag:1.65,color:'#ddeeff',desc:'おうし座β星。ぎょしゃ座との境界付近。青白い巨星。地球から130光年。'},
+  {name:'アル・ニラム',nameEn:'Alnilam',ra:84.053,dec:-1.202,mag:1.69,color:'#ddeeff',desc:'オリオン座の三つ星の中央。青色超巨星。地球から2000光年と非常に遠い。'},
+  {name:'ミモサ',nameEn:'Mimosa',ra:191.930,dec:-59.689,mag:1.25,color:'#ddeeff',desc:'南十字座β星。南十字星の左上の星。青白い巨星。地球から280光年。'},
+  {name:'北極星',nameEn:'Polaris',ra:37.954,dec:89.264,mag:2.02,color:'#fffde7',desc:'こぐま座の主星。現在の北極点の方向にある。実はケフェウス型変光星。地球から430光年。'},
+  {name:'アルニラク',nameEn:'Alnitak',ra:85.190,dec:-1.943,mag:1.74,color:'#ddeeff',desc:'オリオン座の三つ星の東端。青色超巨星。近くに馬頭星雲がある。地球から800光年。'},
+  {name:'サイフ',nameEn:'Saiph',ra:86.939,dec:-9.670,mag:2.07,color:'#ddeeff',desc:'オリオン座κ星。右足の星。青色超巨星だが地球から720光年と遠いため暗く見える。'},
+  {name:'ミンタカ',nameEn:'Mintaka',ra:83.002,dec:-0.299,mag:2.23,color:'#ddeeff',desc:'オリオン座の三つ星の西端。ほぼ天の赤道上にある。地球から900光年。'},
+  {name:'アルファルド',nameEn:'Alphard',ra:141.897,dec:-8.658,mag:1.98,color:'#ffe0b2',desc:'うみへび座の主星。「孤独なもの」を意味する。春の夜空に輝くオレンジの巨星。'},
+  {name:'ドゥベ',nameEn:'Dubhe',ra:165.460,dec:61.751,mag:1.79,color:'#ffe0b2',desc:'おおぐま座α星。北斗七星の柄杓の縁の星。北極星を指す2星のひとつ。地球から124光年。'},
+  {name:'メラク',nameEn:'Merak',ra:165.932,dec:56.382,mag:2.34,color:'#ddeeff',desc:'おおぐま座β星。北斗七星の柄杓の縁の星。ドゥベと共に北極星を指す。地球から79光年。'},
+  {name:'フェクダ',nameEn:'Phecda',ra:178.458,dec:53.695,mag:2.44,color:'#ddeeff',desc:'おおぐま座γ星。北斗七星の柄杓の底の星。地球から84光年の白色星。'},
+  {name:'アリオト',nameEn:'Alioth',ra:193.507,dec:55.960,mag:1.76,color:'#ddeeff',desc:'おおぐま座ε星。北斗七星で最も明るい星。柄の付け根。地球から81光年。'},
+  {name:'ミザール',nameEn:'Mizar',ra:200.981,dec:54.925,mag:2.23,color:'#ddeeff',desc:'おおぐま座ζ星。北斗七星の柄の中央。肉眼でアルコルと分離できる。地球から78光年。'},
+  {name:'アルカイド',nameEn:'Alkaid',ra:206.886,dec:49.313,mag:1.85,color:'#ddeeff',desc:'おおぐま座η星。北斗七星の柄の先端。「喪の娘たちの指導者」を意味する。'},
+  {name:'ラス・アルハゲ',nameEn:'Ras Alhague',ra:263.734,dec:12.560,mag:2.08,color:'#ddeeff',desc:'へびつかい座の主星。「蛇使いの頭」を意味する。地球から47光年。'},
+  {name:'アルビレオ',nameEn:'Albireo',ra:292.680,dec:27.960,mag:3.05,color:'#ffee58',desc:'はくちょう座β星。青とオレンジの美しい二重星。望遠鏡で見ると宝石のように輝く。'},
+  {name:'カシオペアα',nameEn:'Schedar',ra:10.127,dec:56.537,mag:2.23,color:'#ffccbc',desc:'カシオペア座の主星。W字の右端の星。オレンジ色の巨星。地球から230光年。'},
+  {name:'カシオペアβ',nameEn:'Caph',ra:14.177,dec:59.150,mag:2.27,color:'#fffde7',desc:'カシオペア座β星。W字の右から2番目。脈動変光星。地球から54光年。'},
+  {name:'カシオペアγ',nameEn:'Tsih',ra:21.454,dec:60.717,mag:2.47,color:'#ddeeff',desc:'カシオペア座γ星。W字の中央の星。不規則変光星で増光することがある。'},
+  {name:'ペガスス座α',nameEn:'Markab',ra:346.190,dec:15.205,mag:2.49,color:'#ddeeff',desc:'ペガスス座の主星。秋の四辺形の一角。「馬の肩」を意味する。地球から140光年。'},
+  {name:'ペガスス座β',nameEn:'Scheat',ra:345.943,dec:28.083,mag:2.44,color:'#ffccbc',desc:'ペガスス座β星。秋の四辺形の一角。赤色巨星で変光する。地球から200光年。'},
+  {name:'アンドロメダα',nameEn:'Alpheratz',ra:2.097,dec:29.091,mag:2.06,color:'#ddeeff',desc:'アンドロメダ座の主星。秋の四辺形の一角でもある。連星系。地球から97光年。'},
+  {name:'ハマル',nameEn:'Hamal',ra:31.793,dec:23.463,mag:2.00,color:'#ffe0b2',desc:'おひつじ座の主星。「羊の頭」を意味する。オレンジ色の巨星。地球から66光年。'},
+  {name:'デネブカイトス',nameEn:'Diphda',ra:10.897,dec:-17.987,mag:2.04,color:'#ffe0b2',desc:'くじら座β星。秋の夜空に輝くオレンジ色の巨星。地球から96光年。'},
+  {name:'シャウラ',nameEn:'Shaula',ra:263.402,dec:-37.103,mag:1.62,color:'#ddeeff',desc:'さそり座λ星。さそりの尾の先の星。「刺し」を意味する。地球から700光年の青色超巨星。'},
+  {name:'アル・ヘカ',nameEn:'Alheka',ra:84.411,dec:21.143,mag:2.97,color:'#ddeeff',desc:'おうし座ζ星。ヒアデス星団の近く。オリオン座との境界付近。地球から420光年。'},
+  {name:'ウヌカルハイ',nameEn:'Unukalhai',ra:228.421,dec:6.426,mag:2.65,color:'#ffccbc',desc:'へび座の主星。「蛇の首」を意味する。オレンジ色の巨星。地球から73光年。'},
+  {name:'レサト',nameEn:'Lesath',ra:258.839,dec:-37.296,mag:2.69,color:'#ddeeff',desc:'さそり座υ星。シャウラの近くにある青白い星。さそりの尾に位置する。'},
+  {name:'デネブアルゲヌビ',nameEn:'Denebalgedi',ra:326.760,dec:-16.127,mag:2.85,color:'#ddeeff',desc:'やぎ座δ星。「山羊の尾」を意味する。秋の星座の一角。地球から39光年。'},
+  {name:'アルファ・グルス',nameEn:'Al Nair',ra:332.058,dec:-46.961,mag:1.73,color:'#ddeeff',desc:'つる座の主星。南天の明るい星。地球から101光年の青白い巨星。'},
+  {name:'ベータ・グルス',nameEn:'Gruid',ra:340.667,dec:-46.885,mag:2.10,color:'#ffccbc',desc:'つる座β星。赤みがかった変光巨星。南天に輝く。地球から177光年。'},
+  {name:'アルファ・パボ',nameEn:'Peacock',ra:305.891,dec:-56.735,mag:1.91,color:'#ddeeff',desc:'くじゃく座の主星。南天の一等星。イギリス海軍が命名。地球から179光年。'},
+  {name:'ウェイズン',nameEn:'Wezen',ra:107.098,dec:-26.393,mag:1.83,color:'#fff9c4',desc:'おおいぬ座δ星。黄白色の超巨星。見かけより実際は非常に巨大。地球から1600光年。'},
+  {name:'アシェラ',nameEn:'Regor',ra:122.383,dec:-47.337,mag:1.83,color:'#ddeeff',desc:'ほ座γ星。ウォルフ・ライエ星を含む複雑な多重星系。地球から840光年。'},
+  {name:'アルファルド2',nameEn:'Suhail',ra:136.999,dec:-43.433,mag:2.21,color:'#ffe0b2',desc:'ほ座λ星。南の空で輝く。「輝ける者」を意味する。地球から570光年の超巨星。'},
+  {name:'ムリフェイン',nameEn:'Murzim',ra:95.675,dec:-17.956,mag:1.98,color:'#ddeeff',desc:'おおいぬ座β星。シリウスの先触れ。「告知者」を意味する。地球から500光年。'},
+  {name:'ミラ',nameEn:'Mira',ra:34.836,dec:-2.978,mag:3.04,color:'#ffccbc',desc:'くじら座の変光星。長周期変光星の代表。332日周期で2等から10等まで変光する。'},
+  {name:'ツィー',nameEn:'Girtab',ra:266.866,dec:-34.293,mag:2.59,color:'#ddeeff',desc:'さそり座κ星。さそりの尾の部分に位置する青白い星。地球から480光年。'},
+  {name:'サビク',nameEn:'Sabik',ra:257.595,dec:-15.724,mag:2.43,color:'#ddeeff',desc:'へびつかい座η星。「先行く者」を意味する。連星系。地球から84光年。'},
+  {name:'アクラブ',nameEn:'Acrab',ra:241.359,dec:-19.806,mag:2.62,color:'#ddeeff',desc:'さそり座β星。さそりの頭部分。複雑な多重星系。地球から530光年。'},
+  {name:'ジュバ',nameEn:'Dschubba',ra:240.083,dec:-22.622,mag:2.30,color:'#ddeeff',desc:'さそり座δ星。「前頭部」を意味する。青白い巨星。2000年に突然明るくなった。'},
+  {name:'スピカ2',nameEn:'Porrima',ra:190.415,dec:-1.449,mag:2.74,color:'#fffde7',desc:'おとめ座γ星。ほぼ同じ明るさの2星が約169年で互いを回る美しい二重星。'},
+  {name:'ラムダ・ヴェル',nameEn:'Suhail',ra:136.999,dec:-43.433,mag:2.21,color:'#ffe0b2',desc:'ほ座の明るい星。南天の星座の一角。超巨星。'},
+  {name:'カパ・ヴェル',nameEn:'Markeb',ra:140.528,dec:-55.011,mag:2.47,color:'#ddeeff',desc:'ほ座κ星。南天の航海の目印として使われた星。地球から540光年。'},
+  {name:'アルナスル',nameEn:'Alnasl',ra:276.043,dec:-29.880,mag:2.98,color:'#ffe0b2',desc:'いて座γ星。「矢じり」を意味する。天の川の中心方向に輝く。地球から96光年。'},
+  {name:'カウス・アウストラリス',nameEn:'Kaus Australis',ra:276.043,dec:-34.384,mag:1.85,color:'#ddeeff',desc:'いて座ε星。いて座で最も明るい星。「弓の南」を意味する。地球から145光年。'},
+  {name:'アスケラ',nameEn:'Ascella',ra:285.653,dec:-29.880,mag:2.59,color:'#ddeeff',desc:'いて座ζ星。連星系。いて座の中の明るい星のひとつ。地球から88光年。'},
+  {name:'ファレクス',nameEn:'Fuyue',ra:0.0,dec:0.0,mag:3.0,color:'#fffde7',desc:''},// placeholder
+  {name:'デネブアルオカブ',nameEn:'Deneb Algedi',ra:326.760,dec:-16.127,mag:2.85,color:'#ddeeff',desc:'やぎ座δ星。「山羊の尾」を意味する。地球から39光年。'},
+  {name:'アルゲヌビ',nameEn:'Algedi',ra:304.513,dec:-12.545,mag:3.58,color:'#fffde7',desc:'やぎ座α星。「山羊の角」を意味する。肉眼で分離できる二重星。'},
+  {name:'ダビ',nameEn:'Dabih',ra:305.252,dec:-14.781,mag:3.05,color:'#fffde7',desc:'やぎ座β星。複雑な多重星系。「山羊を屠る者の幸運の星」を意味する。'},
+  {name:'アルファルスルーフ',nameEn:'Sadalsud',ra:322.890,dec:-9.496,mag:2.90,color:'#fffde7',desc:'みずがめ座β星。「最も幸運な星」を意味する。黄色の超巨星。地球から610光年。'},
+  {name:'サダルメリク',nameEn:'Sadalmelik',ra:331.446,dec:-0.320,mag:2.96,color:'#fffde7',desc:'みずがめ座α星。「幸運な王の星」を意味する。黄色の超巨星。地球から520光年。'},
+  {name:'エニフ',nameEn:'Enif',ra:326.046,dec:9.875,mag:2.38,color:'#ffe0b2',desc:'ペガスス座ε星。「鼻」を意味する。オレンジ色の超巨星。地球から700光年。'},
+  {name:'アルゴル',nameEn:'Algol',ra:47.042,dec:40.956,mag:2.12,color:'#ddeeff',desc:'ペルセウス座β星。「悪魔の目」を意味する食変光星。約2.87日周期で変光する。'},
+  {name:'ミラク',nameEn:'Mirach',ra:17.433,dec:35.621,mag:2.06,color:'#ffe0b2',desc:'アンドロメダ座β星。オレンジ色の巨星。アンドロメダ銀河の目印。地球から200光年。'},
+  {name:'アルマク',nameEn:'Almach',ra:30.975,dec:42.330,mag:2.10,color:'#ffe0b2',desc:'アンドロメダ座γ星。美しいオレンジと青の二重星。地球から355光年。'},
+  {name:'シェアト',nameEn:'Scheat',ra:345.943,dec:28.083,mag:2.44,color:'#ffccbc',desc:'ペガスス座β星。秋の四辺形の一角。赤色巨星。変光星でもある。'},
+  {name:'アルゲニブ2',nameEn:'Algenib',ra:3.309,dec:15.184,mag:2.83,color:'#ddeeff',desc:'ペガスス座γ星。秋の四辺形の一角。青白い超巨星。地球から390光年。'},
+  {name:'ハマル2',nameEn:'Sheratan',ra:28.660,dec:20.808,mag:2.64,color:'#ddeeff',desc:'おひつじ座β星。連星系。地球から60光年。'},
+  {name:'メサルティム',nameEn:'Mesarthim',ra:30.141,dec:19.794,mag:3.88,color:'#ddeeff',desc:'おひつじ座γ星。天文学史上最初に発見された二重星のひとつ。'},
+  {name:'アルデバラン2',nameEn:'Ain',ra:67.154,dec:19.181,mag:3.53,color:'#ffe0b2',desc:'おうし座ε星。ヒアデス星団の一員。系外惑星が発見されている。地球から147光年。'},
+  {name:'プレアデス（昴）',nameEn:'Pleiades',ra:56.875,dec:24.105,mag:2.86,color:'#ddeeff',desc:'おうし座の散開星団。和名「すばる」。青白い若い星の集団。地球から444光年。'},
+  {name:'メロペ',nameEn:'Merope',ra:56.288,dec:23.948,mag:4.14,color:'#ddeeff',desc:'プレアデス星団の星のひとつ。反射星雲に包まれている。地球から440光年。'},
+  {name:'ネタアシュ',nameEn:'Naos',ra:120.896,dec:-40.003,mag:2.25,color:'#ddeeff',desc:'とも座ζ星。最も表面温度が高い恒星のひとつ。ウォルフ・ライエ星。地球から1400光年。'},
+  {name:'ロ・プピス',nameEn:'Rho Puppis',ra:121.886,dec:-24.304,mag:2.71,color:'#fff9c4',desc:'とも座ρ星。デルタ・スクーティ型変光星。地球から63光年と比較的近い。'},
+  {name:'アルゲニブ3',nameEn:'Aspidiske',ra:139.273,dec:-59.275,mag:2.25,color:'#fffde7',desc:'りゅうこつ座ι星。南天の明るい星。超巨星。地球から690光年。'},
+  {name:'ムリフェイン2',nameEn:'Aludra',ra:111.024,dec:-29.303,mag:2.45,color:'#ddeeff',desc:'おおいぬ座η星。超巨星。地球から3200光年と非常に遠い。「おとめ」を意味する。'},
+  {name:'アルコル',nameEn:'Alcor',ra:201.306,dec:54.988,mag:3.99,color:'#ddeeff',desc:'おおぐま座のミザールの伴星。「見えない者」を意味し、視力の検査に使われた。'},
+  {name:'アリオト2',nameEn:'Megrez',ra:183.857,dec:57.033,mag:3.32,color:'#ddeeff',desc:'おおぐま座δ星。北斗七星で最も暗い星。柄杓の底と柄の接続部。地球から58光年。'},
+  {name:'エタ・アルクトゥルス',nameEn:'Muphrid',ra:208.671,dec:18.398,mag:2.68,color:'#fff9c4',desc:'うしかい座η星。アルクトゥルスの近くにある星。連星系。地球から37光年。'},
+  {name:'イザル',nameEn:'Izar',ra:221.247,dec:27.074,mag:2.35,color:'#ffe0b2',desc:'うしかい座ε星。「腰帯」を意味する。美しいオレンジと青緑の二重星。地球から210光年。'},
+  {name:'ニカル',nameEn:'Nusakan',ra:231.957,dec:29.105,mag:3.66,color:'#ddeeff',desc:'かんむり座β星。連星系。かんむり座のU字形の東端近くにある。地球から114光年。'},
+  {name:'アルファケッカブ',nameEn:'Alphecca',ra:233.672,dec:26.715,mag:2.23,color:'#ddeeff',desc:'かんむり座の主星。「皿」または「真珠」を意味する。かんむりの中央の明るい星。食連星。'},
+  {name:'ラス・アルゲティ',nameEn:'Rasalgethi',ra:258.662,dec:14.390,mag:2.77,color:'#ffccbc',desc:'ヘルクレス座の主星。「ひざまずく者の頭」を意味する。赤色超巨星と連星を成す。'},
+  {name:'コルネフォロス',nameEn:'Kornephoros',ra:247.555,dec:21.490,mag:2.77,color:'#fffde7',desc:'ヘルクレス座β星。黄色の巨星。ヘルクレス座で最も明るい星。地球から139光年。'},
+  {name:'アルデラミン',nameEn:'Alderamin',ra:319.645,dec:62.585,mag:2.44,color:'#ddeeff',desc:'ケフェウス座の主星。「右腕」を意味する。数千年後に北極星になる予定。地球から49光年。'},
+  {name:'アルフィルク',nameEn:'Alfirk',ra:322.165,dec:70.561,mag:3.15,color:'#ddeeff',desc:'ケフェウス座β星。ケフェウス型変光星のひとつ。地球から1000光年。'},
+  {name:'エライ',nameEn:'Errai',ra:354.837,dec:77.633,mag:3.22,color:'#fff9c4',desc:'ケフェウス座γ星。系外惑星が発見されている。将来の北極星候補。地球から45光年。'},
+  {name:'ペルセウスα',nameEn:'Mirfak',ra:51.081,dec:49.861,mag:1.79,color:'#fffde7',desc:'ペルセウス座の主星。「肘」を意味する。黄白色の超巨星。地球から510光年。'},
+  {name:'アルゴル2',nameEn:'Gorgonea Tertia',ra:46.018,dec:40.010,mag:3.39,color:'#ffccbc',desc:'ペルセウス座ρ星。メドゥーサの首の部分。赤色半規則変光星。'},
+  {name:'アタイル',nameEn:'Altais',ra:291.362,dec:67.661,mag:3.07,color:'#fff9c4',desc:'りゅう座δ星。「鷲」を意味する。黄色の巨星。地球から97光年。'},
+  {name:'エルタニン',nameEn:'Eltanin',ra:269.151,dec:51.489,mag:2.24,color:'#ffe0b2',desc:'りゅう座の主星γ星。「頭」を意味する。オレンジ色の巨星。地球から148光年。'},
+  {name:'グルバン',nameEn:'Grumium',ra:261.352,dec:56.873,mag:3.75,color:'#ffe0b2',desc:'りゅう座ξ星。「あごの先」を意味する。オレンジ色の巨星。地球から112光年。'},
+  {name:'トゥバン',nameEn:'Thuban',ra:211.097,dec:64.376,mag:3.65,color:'#ddeeff',desc:'りゅう座α星。約4800年前の北極星。ピラミッド建設当時の北極星。地球から303光年。'},
+  {name:'アルナスル2',nameEn:'Kaus Media',ra:277.937,dec:-29.828,mag:2.70,color:'#ddeeff',desc:'いて座δ星。「弓の中央」を意味する。南斗六星の一部。地球から305光年。'},
+  {name:'カウス・ボレアリス',nameEn:'Kaus Borealis',ra:276.993,dec:-25.421,mag:2.82,color:'#fff9c4',desc:'いて座λ星。「弓の北」を意味する。南斗六星の最北の星。地球から77光年。'},
+  {name:'ヌンキ',nameEn:'Nunki',ra:283.816,dec:-26.297,mag:2.05,color:'#ddeeff',desc:'いて座σ星。いて座で2番目に明るい星。「海の星」を意味する古いバビロニア名。'},
+  {name:'タウ・サジタリ',nameEn:'Tau Sgr',ra:290.972,dec:-27.670,mag:3.32,color:'#fff9c4',desc:'いて座τ星。1977年に謎の電波信号「Wow!シグナル」の方向にある星。'},
+  {name:'フォマルハウト2',nameEn:'Epsilon PsA',ra:341.519,dec:-27.044,mag:4.17,color:'#ddeeff',desc:'みなみのうお座ε星。フォーマルハウトの近くにある星。'},
+  {name:'サダルスウド',nameEn:'Sadalsuud',ra:322.890,dec:-9.496,mag:2.90,color:'#fffde7',desc:'みずがめ座β星。「最も幸運な星」を意味する。黄色の超巨星。地球から610光年。'},
+  {name:'スカット',nameEn:'Skat',ra:339.571,dec:-15.821,mag:3.27,color:'#ddeeff',desc:'みずがめ座δ星。「脛」を意味する。地球から160光年の白色星。'},
+];
+// Remove empty entry
+const STARS = STAR_CATALOG.filter(s=>s.name!=='ファレクス');
+
+// ============================================================
+// 星座データ（20星座）- 主要星のRA/Dec で線を結ぶ形式
+// ============================================================
+const CONSTELLATIONS=[
+  {name:'オリオン座',nameEn:'Orion',desc:'冬の代表的な星座。三つ星と二つの一等星（リゲル・ベテルギウス）が目印の狩人。',icon:'⚔️',
+   ra:83,dec:5,color:'#4fc3f7',
+   stars:[[88.79,7.41],[81.28,6.35],[78.63,-8.20],[84.05,-1.20],[85.19,-1.94],[83.00,-0.30],[86.94,-9.67],[79.17,45.99],[114.83,5.23]],
+   lines:[[0,1],[1,2],[0,3],[3,4],[4,5],[2,6],[0,4]]},
+  {name:'おおぐま座',nameEn:'Ursa Major',desc:'北斗七星を含む大きな星座。年中北の空に見える。柄杓形の星並びが有名。',icon:'🐻',
+   ra:165,dec:56,color:'#81d4fa',
+   stars:[[165.46,61.75],[165.93,56.38],[178.46,53.70],[183.86,57.03],[193.51,55.96],[200.98,54.93],[206.89,49.31]],
+   lines:[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]},
+  {name:'さそり座',nameEn:'Scorpius',desc:'夏の南天。赤いアンタレスが心臓。Sカーブのしっぽが特徴的な黄道十二星座。',icon:'🦂',
+   ra:247,dec:-26,color:'#ff8a65',
+   stars:[[241.36,-19.81],[240.08,-22.62],[247.35,-26.43],[252.97,-25.59],[255.59,-28.22],[258.84,-37.30],[263.40,-37.10],[263.73,-12.56]],
+   lines:[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]},
+  {name:'カシオペア座',nameEn:'Cassiopeia',desc:'W字形が目印。北の空の女王。北極星の反対側にあり年中見える。',icon:'👑',
+   ra:10,dec:60,color:'#ce93d8',
+   stars:[[10.13,56.54],[14.18,59.15],[21.45,60.72],[24.20,60.24],[28.60,63.67]],
+   lines:[[0,1],[1,2],[2,3],[3,4]]},
+  {name:'しし座',nameEn:'Leo',desc:'春の夜空。鎌形の星並びが獅子の顔を表す黄道十二星座。レグルスが主星。',icon:'🦁',
+   ra:152,dec:15,color:'#fff176',
+   stars:[[152.09,11.97],[154.17,19.84],[168.53,20.52],[177.26,14.57],[177.26,14.57],[165.93,15.43],[154.99,23.77]],
+   lines:[[0,1],[1,2],[2,3],[0,5],[5,6],[6,1]]},
+  {name:'はくちょう座',nameEn:'Cygnus',desc:'夏の大三角。北十字星とも呼ばれる。デネブが主星で天の川の中にある。',icon:'🦢',
+   ra:310,dec:45,color:'#a5d6a7',
+   stars:[[310.36,45.28],[292.68,27.96],[305.56,40.26],[318.23,38.78],[322.04,48.98],[296.24,44.99]],
+   lines:[[0,2],[2,1],[2,3],[2,4],[2,5]]},
+  {name:'ふたご座',nameEn:'Gemini',desc:'冬の双子星座。カストルとポルックスが並ぶ黄道十二星座。冬の大三角に隣接。',icon:'👫',
+   ra:116,dec:25,color:'#80deea',
+   stars:[[113.65,31.89],[116.33,28.03],[99.43,22.51],[93.72,22.51],[95.17,16.54],[100.98,12.90]],
+   lines:[[0,2],[1,3],[2,3],[2,4],[3,5]]},
+  {name:'おうし座',nameEn:'Taurus',desc:'冬の星座。赤いアルデバランとプレアデス（昴）が目印の黄道十二星座。',icon:'🐂',
+   ra:68,dec:16,color:'#ffab91',
+   stars:[[68.98,16.51],[84.41,21.14],[67.15,19.18],[56.88,24.11],[81.57,28.61]],
+   lines:[[0,1],[0,2],[2,3],[1,4]]},
+  {name:'おとめ座',nameEn:'Virgo',desc:'春の星座。青白いスピカが主星。春の大曲線の終点。黄道十二星座で最大。',icon:'🌾',
+   ra:201,dec:-5,color:'#f8bbd0',
+   stars:[[201.30,-11.16],[190.42,-1.45],[177.67,6.53],[187.79,1.77],[194.01,-5.94],[204.37,1.54]],
+   lines:[[0,1],[1,2],[2,3],[3,1],[1,4],[4,5]]},
+  {name:'みずがめ座',nameEn:'Aquarius',desc:'秋の黄道星座。水を注ぐ男の姿。サダルスウドとサダルメリクが主星。',icon:'🏺',
+   ra:325,dec:-12,color:'#64b5f6',
+   stars:[[322.89,-9.50],[331.45,-0.32],[326.76,-16.13],[339.57,-15.82],[341.52,-27.04]],
+   lines:[[0,1],[0,2],[2,3],[3,4]]},
+  {name:'こと座',nameEn:'Lyra',desc:'夏の大三角。明るいベガを含む小さな星座。音楽の神オルフェウスの竪琴。',icon:'🎵',
+   ra:279,dec:39,color:'#e8f5e9',
+   stars:[[279.24,38.78],[281.42,32.69],[283.63,36.90],[284.74,32.69],[282.52,32.08]],
+   lines:[[0,1],[1,2],[2,3],[3,4],[4,1]]},
+  {name:'わし座',nameEn:'Aquila',desc:'夏の大三角。アルタイルが主星。天の川の中に位置する鷲の姿。',icon:'🦅',
+   ra:297,dec:9,color:'#dce775',
+   stars:[[297.70,8.87],[295.02,10.61],[299.69,10.29],[296.65,3.11],[302.00,1.01]],
+   lines:[[0,1],[0,2],[0,3],[3,4]]},
+  {name:'ペルセウス座',nameEn:'Perseus',desc:'秋から冬の星座。食変光星アルゴルとメデゥーサの首が有名。',icon:'⚡',
+   ra:50,dec:45,color:'#90caf9',
+   stars:[[51.08,49.86],[47.04,40.96],[40.96,43.08],[56.45,47.71],[45.19,38.98]],
+   lines:[[0,1],[1,2],[0,3],[1,4]]},
+  {name:'アンドロメダ座',nameEn:'Andromeda',desc:'秋の星座。アンドロメダ銀河M31が有名。ペガスス座と繋がる星の連なり。',icon:'🌌',
+   ra:15,dec:40,color:'#b39ddb',
+   stars:[[2.10,29.09],[17.43,35.62],[30.97,42.33],[22.08,40.12]],
+   lines:[[0,1],[1,2],[1,3]]},
+  {name:'いて座',nameEen:'Sagittarius',desc:'夏の星座。天の川銀河の中心方向。南斗六星の柄杓形が有名。',icon:'🏹',
+   ra:280,dec:-25,color:'#ffcc80',
+   stars:[[276.99,-25.42],[276.04,-29.83],[277.94,-29.83],[283.82,-26.30],[285.65,-29.88],[290.97,-27.67]],
+   lines:[[0,1],[1,2],[2,3],[3,4],[4,5],[0,2]]},
+  {name:'うしかい座',nameEn:'Boötes',desc:'春の星座。明るいアルクトゥルスが主星。春の大曲線の起点。',icon:'🌸',
+   ra:213,dec:30,color:'#ffe0b2',
+   stars:[[213.92,19.18],[208.67,18.40],[221.25,27.07],[217.96,37.43],[209.67,40.39],[200.98,54.93]],
+   lines:[[0,1],[0,2],[2,3],[3,4],[4,0]]},
+  {name:'かんむり座',nameEn:'Corona Borealis',desc:'春から夏の星座。U字形の星並びが美しい王冠の形。アルファッカが主星。',icon:'👸',
+   ra:235,dec:30,color:'#f8bbd0',
+   stars:[[233.67,26.72],[229.73,29.11],[225.49,31.36],[231.96,29.11],[239.67,26.88],[243.50,26.42]],
+   lines:[[0,1],[1,2],[0,3],[3,4],[4,5]]},
+  {name:'こぐま座',nameEn:'Ursa Minor',desc:'北極星を含む星座。小北斗とも呼ばれる小さな柄杓形。北の空の道標。',icon:'🐼',
+   ra:230,dec:78,color:'#b2ebf2',
+   stars:[[37.95,89.26],[222.68,86.59],[236.57,77.79],[230.18,71.83],[222.68,74.16],[245.00,77.79],[262.71,74.16]],
+   lines:[[0,1],[1,2],[2,3],[3,4],[3,5],[5,6]]},
+  {name:'さんかく座',nameEn:'Triangulum',desc:'秋の小さな星座。三角形の形がはっきりわかる。近くにさんかく座銀河M33がある。',icon:'🔺',
+   ra:35,dec:33,color:'#e0f2f1',
+   stars:[[28.27,29.58],[31.79,34.99],[35.62,33.85]],
+   lines:[[0,1],[1,2],[2,0]]},
+  {name:'みなみのうお座',nameEn:'Piscis Austrinus',desc:'秋の南の星座。孤独な一等星フォーマルハウトが有名。',icon:'🐟',
+   ra:344,dec:-30,color:'#80cbc4',
+   stars:[[344.41,-29.62],[341.52,-27.04],[338.84,-32.35],[333.99,-32.54],[330.61,-27.04],[327.63,-32.54]],
+   lines:[[0,1],[0,2],[2,3],[3,4],[4,5],[5,0]]},
+];
+
+// 天の川
+const MILKY_WAY=[
+  {ra:266,dec:-29},{ra:275,dec:-23},{ra:283,dec:-17},{ra:293,dec:-10},
+  {ra:305,dec:-3},{ra:315,dec:3},{ra:325,dec:8},{ra:335,dec:13},
+  {ra:345,dec:17},{ra:355,dec:19},{ra:8,dec:19},{ra:20,dec:17},
+  {ra:33,dec:13},{ra:48,dec:8},{ra:63,dec:4},{ra:78,dec:2},
+  {ra:93,dec:-1},{ra:108,dec:-4},{ra:123,dec:-7},{ra:138,dec:-10},
+  {ra:158,dec:-12},{ra:178,dec:-13},{ra:198,dec:-15},{ra:213,dec:-18},
+  {ra:228,dec:-22},{ra:243,dec:-27},{ra:255,dec:-29},{ra:266,dec:-29},
+];
+
+// ============================================================
+// App State
+// ============================================================
+let bearing=0,elevation=0,lat=35.68,lon=139.69;
+let demoMode=false,demoAngle=0,orientationReceived=false;
+let selectedObject=null;
+
+const skyviewCanvas=document.getElementById('skyview');
+const skyviewCtx=skyviewCanvas.getContext('2d');
+const skyCanvas=document.getElementById('sky');
+const skyCtx=skyCanvas.getContext('2d');
+
+// タップ処理
+skyviewCanvas.addEventListener('click',onSkyTap);
+skyviewCanvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  const r=skyviewCanvas.getBoundingClientRect();
+  onSkyTap({clientX:t.clientX,clientY:t.clientY,rect:r});
+},{passive:false});
+
+function onSkyTap(e){
+  const rect=skyviewCanvas.getBoundingClientRect();
+  const s=window.devicePixelRatio||1;
+  const tx=(e.clientX-rect.left);
+  const ty=(e.clientY-rect.top);
+  const W=skyviewCanvas.clientWidth,H=skyviewCanvas.clientHeight;
+  const cx=W/2,cy=H/2;
+  const fovH=60,fovV=180;
+  const scaleX=W/fovH,scaleY=H/fovV;
+
+  // タップ位置から方位・仰角を計算
+  const tapAz=bearing+(tx-cx)/scaleX;
+  const tapAlt=elevation-(ty-cy)/scaleY;
+
+  // 最も近い天体を探す
+  let best=null,bestDist=15; // 15度以内
+  for(const obj of cachedObjects){
+    if(obj.type==='milkyway'||obj.alt<-20) continue;
+    const dAz=Math.abs(((obj.az-tapAz+540)%360)-180);
+    const dAlt=Math.abs(obj.alt-tapAlt);
+    const d=Math.sqrt(dAz*dAz+dAlt*dAlt);
+    if(d<bestDist){bestDist=d;best=obj;}
+  }
+  if(best) openDetail(best);
+}
+
+function openDetail(obj){
+  selectedObject=obj;
+  document.getElementById('detail-icon').textContent=getIcon(obj);
+  document.getElementById('detail-name').textContent=obj.name;
+  document.getElementById('detail-name-en').textContent=obj.nameEn||obj.name;
+  document.getElementById('detail-desc').textContent=obj.desc||'';
+  document.getElementById('d-az').textContent=`${Math.round(obj.az)}°`;
+  document.getElementById('d-alt').textContent=`${Math.round(obj.alt)}°`;
+  document.getElementById('d-mag').textContent=
+    obj.mag!==undefined?obj.mag.toFixed(1): obj.type==='moon'?`月齢${getMoonAge(new Date()).toFixed(1)}`: '---';
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetail(){
+  document.getElementById('detail-panel').classList.remove('open');
+  selectedObject=null;
+}
+
+function getIcon(obj){
+  if(obj.type==='sun') return'☀️';
+  if(obj.type==='moon') return getMoonPhaseIcon(getMoonAge(new Date()));
+  if(obj.type==='planet'){
+    const icons={'水星':'☿','金星':'♀','火星':'♂','木星':'♃','土星':'♄'};
+    return icons[obj.name]||'🪐';
+  }
+  if(obj.type==='constellation') return obj.icon||'🌌';
+  return'⭐';
+}
+
+// ============================================================
+// 天体計算
+// ============================================================
+function getAllCelestialObjects(){
+  const now=new Date(),d=jd2000(now),lst=localSiderealTime(now,lon);
+  const objs=[];
+
+  // 月
+  const mrd=getMoonRADec(d),mhz=equatorialToHorizontal(mrd.ra,mrd.dec,lst,lat);
+  const age=getMoonAge(now);
+  objs.push({name:'月',nameEn:'Moon',type:'moon',az:mhz.az,alt:mhz.alt,color:'#e0e0e0',size:6,
+    desc:`月齢 ${age.toFixed(1)} 日。${age<1.5?'新月':age<7.5?'上弦に向かう月':age<14.5?'満月に近づく':age<15.5?'満月':age<22.5?'下弦に向かう':'新月に向かう'}。`});
+
+  // 太陽
+  const sp=getSunPos(d),srd=eclipticToEquatorial(sp.x,sp.y,sp.z),shz=equatorialToHorizontal(srd.ra,srd.dec,lst,lat);
+  objs.push({name:'太陽',nameEn:'Sun',type:'sun',az:shz.az,alt:shz.alt,color:'#ffee58',size:7,mag:-26.7,
+    desc:`太陽 ☀️ 現在の高度 ${Math.round(shz.alt)}°。${shz.alt>0?'昼間です。直視は危険！':'地平線下にあります。'}`});
+
+  // 惑星
+  for(const[pn,el] of Object.entries(PLANET_EL)){
+    const rd=getPlanetRADec(el,d),hz=equatorialToHorizontal(rd.ra,rd.dec,lst,lat);
+    objs.push({name:pn,nameEn:pn,type:'planet',az:hz.az,alt:hz.alt,color:PCOL[pn],size:PSIZ[pn],
+      desc:PDESC[pn]||''});
+  }
+
+  // 恒星
+  for(const s of STARS){
+    const hz=equatorialToHorizontal(s.ra,s.dec,lst,lat);
+    const sz=s.mag<0?4.5:s.mag<1?3.5:s.mag<2?2.8:s.mag<3?2.0:1.3;
+    objs.push({...s,type:'star',az:hz.az,alt:hz.alt,size:sz});
+  }
+
+  // 星座
+  for(const c of CONSTELLATIONS){
+    const hz=equatorialToHorizontal(c.ra,c.dec,lst,lat);
+    // 星座の各星も変換
+    const starHz=c.stars.map(([ra,dec])=>equatorialToHorizontal(ra,dec,lst,lat));
+    objs.push({...c,type:'constellation',az:hz.az,alt:hz.alt,color:c.color,size:2,
+      starsHz:starHz});
+  }
+
+  // 天の川
+  const mwHz=MILKY_WAY.map(p=>equatorialToHorizontal(p.ra,p.dec,lst,lat));
+  objs.push({name:'天の川',nameEn:'Milky Way',type:'milkyway',az:266,alt:0,
+    desc:'銀河系の中心方向。夏の夜に天の川として肉眼で観察できる。',path:mwHz});
+
+  return objs;
+}
+
+function getNearby(objects,range){
+  return objects.filter(o=>{
+    if(o.type==='milkyway')return false;
+    const da=Math.abs(((o.az-bearing+540)%360)-180);
+    const de=Math.abs(o.alt-elevation);
+    o._dist=Math.sqrt(da*da+de*de);
+    return o._dist<range&&o.alt>-15;
+  }).sort((a,b)=>a._dist-b._dist);
+}
+
+// ============================================================
+// Start
+// ============================================================
+function startApp(){
+  if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+    DeviceOrientationEvent.requestPermission()
+      .then(p=>{if(p==='granted')setupOrientation();else startDemo();})
+      .catch(()=>startDemo());
+  } else if(window.DeviceOrientationEvent){
+    setupOrientation();
+    setTimeout(()=>{if(!orientationReceived)startDemo();},2500);
+  } else startDemo();
+
+  document.getElementById('permission-screen').classList.add('hidden');
+  updateTime();setInterval(updateTime,1000);
+
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos=>{lat=pos.coords.latitude;lon=pos.coords.longitude;
+        document.getElementById('lat-lon').textContent=`${lat.toFixed(2)}°N  ${lon.toFixed(2)}°E`;
+        lastCalc=0;},
+      ()=>{document.getElementById('lat-lon').textContent='東京（デフォルト）';},
+      {timeout:8000}
+    );
+  }
+  resizeCanvases();
+  window.addEventListener('resize',resizeCanvases);
+  render();
+}
+
+function setupOrientation(){
+  // iOSでは deviceorientation 優先（webkitCompassHeadingが使える）
+  // absoluteイベントとの二重登録を避ける
+  if(/iPhone|iPad|iPod/.test(navigator.userAgent)){
+    window.addEventListener('deviceorientation',handleOrientation,true);
+  } else {
+    window.addEventListener('deviceorientationabsolute',handleOrientation,true);
+    window.addEventListener('deviceorientation',handleOrientation,true);
+  }
+}
+
+// 方位の平滑化用（円形データ対応）
+let bearingSmooth=null, elevationSmooth=null;
+let compassAccuracy=null; // iOSのwebkitCompassAccuracy（精度指標）
+
+function smoothAngle(prev,curr,factor){
+  if(prev===null) return curr;
+  // 円形補間（359°→0°を跨ぐ時の対応）
+  let diff=curr-prev;
+  if(diff>180) diff-=360;
+  else if(diff<-180) diff+=360;
+  return (prev+diff*factor+360)%360;
+}
+
+function smoothLinear(prev,curr,factor){
+  if(prev===null) return curr;
+  return prev+(curr-prev)*factor;
+}
+
+function handleOrientation(e){
+  orientationReceived=true;
+
+  // 精度情報取得（iOS）
+  if(e.webkitCompassAccuracy!==undefined){
+    compassAccuracy=e.webkitCompassAccuracy;
+  }
+
+  let rawBearing=null;
+  if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
+  else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
+
+  if(rawBearing!==null){
+    // 精度が悪い(-1または大きい値)場合は平滑化を弱める
+    const factor = (compassAccuracy!==null && (compassAccuracy<0 || compassAccuracy>30)) ? 0.08 : 0.25;
+    bearingSmooth = smoothAngle(bearingSmooth, rawBearing, factor);
+    bearing = bearingSmooth;
+  }
+
+  // 仰角
+  if(e.beta!==null){
+    const rawElev = Math.max(-30,Math.min(90,e.beta-90));
+    elevationSmooth = smoothLinear(elevationSmooth, rawElev, 0.3);
+    elevation = elevationSmooth;
+  }
+
+  // コンパス精度の警告表示
+  const warnEl = document.getElementById('compass-warn');
+  if(warnEl){
+    if(compassAccuracy!==null && (compassAccuracy<0 || compassAccuracy>30)){
+      warnEl.style.display='block';
+      warnEl.textContent='⚠ コンパス精度が低い — 8の字に振って校正';
+    } else {
+      warnEl.style.display='none';
+    }
+  }
+}
+
+function startDemo(){
+  demoMode=true;
+  document.getElementById('demo-badge').style.display='block';
+  document.getElementById('lat-lon').textContent='東京（デモ）';
+  animateDemo();
+}
+
+function animateDemo(){
+  demoAngle+=0.003;
+  bearing=(demoAngle*18)%360;
+  elevation=40+Math.sin(demoAngle*0.5)*30;
+  requestAnimationFrame(animateDemo);
+}
+
+// ============================================================
+// Canvas
+// ============================================================
+function resizeCanvases(){
+  const s=window.devicePixelRatio||1;
+  skyCanvas.width=window.innerWidth*s;skyCanvas.height=window.innerHeight*s;skyCtx.scale(s,s);
+  const wrap=document.getElementById('skyview-wrap');
+  skyviewCanvas.width=wrap.clientWidth*s;skyviewCanvas.height=wrap.clientHeight*s;
+  skyviewCanvas.style.width=wrap.clientWidth+'px';skyviewCanvas.style.height=wrap.clientHeight+'px';
+  skyviewCtx.scale(s,s);
+}
+
+const BGSTARS=Array.from({length:200},()=>({x:Math.random(),y:Math.random(),r:Math.random()*0.9+0.2,op:Math.random()*0.4+0.1,spd:Math.random()*0.00005}));
+function drawBgStars(){
+  const W=window.innerWidth,H=window.innerHeight;
+  skyCtx.clearRect(0,0,W,H);
+  for(const s of BGSTARS){s.x=(s.x+s.spd)%1;skyCtx.beginPath();skyCtx.arc(s.x*W,s.y*H,s.r,0,Math.PI*2);skyCtx.fillStyle=`rgba(200,218,255,${s.op})`;skyCtx.fill();}
+}
+
+// ============================================================
+// Sky view draw
+// ============================================================
+function drawSkyView(objects){
+  const ctx=skyviewCtx;
+  const W=skyviewCanvas.clientWidth,H=skyviewCanvas.clientHeight;
+  const cx=W/2,cy=H/2;
+  const fovH=60,fovV=180;
+  const scaleX=W/fovH,scaleY=H/fovV;
+
+  ctx.clearRect(0,0,W,H);
+
+  // 地平線Y座標（空を向く=elevationが増える=地平線は下へ）
+  const horizonY=cy+(elevation*scaleY);
+
+  // 天の川
+  const mwObj=objects.find(o=>o.type==='milkyway');
+  if(mwObj&&mwObj.path){
+    const pts=mwObj.path.map(p=>{
+      const dAz=((p.az-bearing+540)%360)-180;
+      const dAlt=p.alt-elevation;
+      return{x:cx+dAz*scaleX,y:cy-dAlt*scaleY};
+    }).filter(p=>p.x>-100&&p.x<W+100&&p.y>-200&&p.y<H+200);
+
+    if(pts.length>3){
+      ctx.save();
+      const bw=22;
+      ctx.beginPath();
+      pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y-bw):ctx.lineTo(p.x,p.y-bw));
+      for(let i=pts.length-1;i>=0;i--)ctx.lineTo(pts[i].x,pts[i].y+bw);
+      ctx.closePath();
+      const mwG=ctx.createLinearGradient(0,0,W,H);
+      mwG.addColorStop(0,'rgba(140,100,180,0)');
+      mwG.addColorStop(0.3,'rgba(160,110,200,0.10)');
+      mwG.addColorStop(0.6,'rgba(180,130,220,0.16)');
+      mwG.addColorStop(1,'rgba(140,100,180,0)');
+      ctx.fillStyle=mwG;ctx.fill();
+      // 星粒
+      ctx.globalAlpha=0.6;
+      for(let i=0;i<pts.length-1;i++){
+        for(let j=0;j<8;j++){
+          const t=Math.random();
+          const px=pts[i].x+(pts[i+1]?.x-pts[i].x)*t;
+          const py=pts[i].y+(pts[i+1]?.y-pts[i].y)*t+(Math.random()-0.5)*bw*2;
+          ctx.beginPath();ctx.arc(px,py,Math.random()*0.7+0.1,0,Math.PI*2);
+          ctx.fillStyle=`rgba(210,180,255,${Math.random()*0.4+0.05})`;ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  // 地面
+  if(horizonY<H){
+    const gG=ctx.createLinearGradient(0,horizonY,0,H);
+    gG.addColorStop(0,'rgba(18,38,14,0.88)');
+    gG.addColorStop(0.4,'rgba(12,26,9,0.96)');
+    gG.addColorStop(1,'rgba(8,18,6,1)');
+    ctx.fillStyle=gG;ctx.fillRect(0,horizonY,W,H-horizonY);
+  }
+
+  // 地平線グロー
+  if(horizonY>=0&&horizonY<=H){
+    const hG=ctx.createLinearGradient(0,horizonY-14,0,horizonY+5);
+    hG.addColorStop(0,'rgba(60,160,60,0)');
+    hG.addColorStop(0.5,'rgba(60,180,60,0.22)');
+    hG.addColorStop(1,'rgba(60,160,60,0)');
+    ctx.fillStyle=hG;ctx.fillRect(0,horizonY-14,W,19);
+    ctx.beginPath();ctx.moveTo(0,horizonY);ctx.lineTo(W,horizonY);
+    ctx.strokeStyle='rgba(70,190,70,0.5)';ctx.lineWidth=1;ctx.stroke();
+
+    // 方位目盛り
+    const dirs=[{az:0,l:'N'},{az:45,l:'NE'},{az:90,l:'E'},{az:135,l:'SE'},{az:180,l:'S'},{az:225,l:'SW'},{az:270,l:'W'},{az:315,l:'NW'}];
+    ctx.font='10px Orbitron,monospace';ctx.textAlign='center';
+    for(const d of dirs){
+      const dAz=((d.az-bearing+540)%360)-180;
+      if(Math.abs(dAz)>fovH/2+8)continue;
+      const x=cx+dAz*scaleX;
+      ctx.fillStyle=d.l==='N'?'rgba(255,100,100,0.8)':'rgba(70,190,70,0.7)';
+      ctx.fillText(d.l,x,horizonY+15);
+      ctx.beginPath();ctx.moveTo(x,horizonY);ctx.lineTo(x,horizonY+7);
+      ctx.strokeStyle=d.l==='N'?'rgba(255,100,100,0.5)':'rgba(70,190,70,0.45)';
+      ctx.lineWidth=1;ctx.stroke();
+    }
+  }
+
+  // 仰角グリッド（薄く）
+  ctx.save();ctx.globalAlpha=0.06;
+  for(let alt=0;alt<=90;alt+=15){
+    const y=cy-(alt-elevation)*scaleY;
+    if(y<0||y>H)continue;
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);
+    ctx.strokeStyle='rgba(79,195,247,1)';ctx.lineWidth=0.5;ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── 天体描画 ──
+  for(const obj of objects){
+    if(obj.type==='milkyway')continue;
+    if(obj.alt<-25)continue;
+    const dAz=((obj.az-bearing+540)%360)-180;
+    const dAlt=obj.alt-elevation;
+    if(Math.abs(dAz)>fovH/2+8||dAlt<-fovV/2-10||dAlt>fovV/2+10)continue;
+
+    const x=cx+dAz*scaleX;
+    const y=cy-dAlt*scaleY;
+    const dist=Math.sqrt(dAz*dAz+dAlt*dAlt);
+    const inFocus=dist<6;
+    const alpha=inFocus?1:Math.max(0.12,1-dist/(fovH*0.8));
+    const isSelected=selectedObject&&selectedObject.name===obj.name;
+
+    ctx.save();ctx.globalAlpha=alpha;
+
+    if(obj.type==='constellation'&&obj.starsHz){
+      // 星座線（実際の星の位置を使用）
+      ctx.globalAlpha=alpha*(inFocus?0.6:0.28);
+      ctx.strokeStyle=obj.color;ctx.lineWidth=0.9;
+      for(const[i,j] of obj.lines){
+        const s1=obj.starsHz[i],s2=obj.starsHz[j];
+        if(!s1||!s2)continue;
+        const dAz1=((s1.az-bearing+540)%360)-180,dAlt1=s1.alt-elevation;
+        const dAz2=((s2.az-bearing+540)%360)-180,dAlt2=s2.alt-elevation;
+        if(Math.abs(dAz1)>fovH*1.2||Math.abs(dAz2)>fovH*1.2)continue;
+        const x1=cx+dAz1*scaleX,y1=cy-dAlt1*scaleY;
+        const x2=cx+dAz2*scaleX,y2=cy-dAlt2*scaleY;
+        ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+      }
+      // 星座の各星を描画
+      ctx.globalAlpha=alpha*0.7;
+      for(const sh of obj.starsHz){
+        const dA=((sh.az-bearing+540)%360)-180,dD=sh.alt-elevation;
+        if(Math.abs(dA)>fovH*1.2)continue;
+        const sx=cx+dA*scaleX,sy=cy-dD*scaleY;
+        ctx.beginPath();ctx.arc(sx,sy,1.8,0,Math.PI*2);
+        ctx.fillStyle='#fff';ctx.shadowBlur=4;ctx.shadowColor=obj.color;ctx.fill();ctx.shadowBlur=0;
+      }
+      // 星座名ラベル
+      if(inFocus||dist<18){
+        ctx.globalAlpha=alpha*0.85;
+        ctx.font=`${inFocus?'bold ':''} ${inFocus?11:9}px 'Noto Sans JP'`;
+        ctx.fillStyle=obj.color;ctx.textAlign='center';
+        ctx.shadowBlur=4;ctx.shadowColor='rgba(0,0,0,1)';
+        ctx.fillText(obj.name,x,y-12);ctx.shadowBlur=0;
+      }
+    } else {
+      // 点天体
+      const sz=inFocus?obj.size+2:obj.size;
+
+      if(obj.type==='sun'){
+        for(let r=sz*5;r>0;r-=2){
+          ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+          ctx.fillStyle=`rgba(255,238,88,${0.04+r/sz/100})`;ctx.fill();
+        }
+      } else if(obj.type==='moon'){
+        ctx.beginPath();ctx.arc(x,y,sz*2.5,0,Math.PI*2);
+        ctx.fillStyle='rgba(224,224,224,0.08)';ctx.fill();
+      }
+
+      ctx.beginPath();ctx.arc(x,y,sz,0,Math.PI*2);
+      ctx.fillStyle=obj.color||'#fff';
+      ctx.shadowBlur=inFocus?16:obj.type==='star'?(obj.mag<1?6:3):8;
+      ctx.shadowColor=obj.color||'#fff';
+      ctx.fill();ctx.shadowBlur=0;
+
+      // 選択中はリングを表示
+      if(isSelected){
+        ctx.beginPath();ctx.arc(x,y,sz+6,0,Math.PI*2);
+        ctx.strokeStyle=var_gold;ctx.lineWidth=1.5;ctx.stroke();
+      }
+
+      // ラベル表示判定
+      const magThresh=obj.type==='star'?(inFocus?6:dist<10?3:dist<20?2:dist<30?1:0):999;
+      const showLabel=inFocus||(dist<35&&obj.type!=='star')||
+        (obj.type==='star'&&(obj.mag<=magThresh||(dist<12&&obj.mag<3)));
+      if(showLabel){
+        ctx.font=`${inFocus?'bold ':''} ${inFocus?11:obj.mag<1?10:9}px 'Noto Sans JP'`;
+        ctx.fillStyle=obj.color||'#ccc';
+        ctx.globalAlpha=alpha*0.92;ctx.textAlign='left';
+        ctx.shadowBlur=3;ctx.shadowColor='rgba(0,0,0,0.95)';
+        ctx.fillText(obj.name,x+sz+4,y-sz);ctx.shadowBlur=0;
+      }
+    }
+    ctx.restore();
+  }
+
+  // クロスヘア
+  ctx.save();
+  ctx.strokeStyle='rgba(79,195,247,0.45)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(cx,cy,18,0,Math.PI*2);ctx.stroke();
+  [[cx-28,cy,cx-20,cy],[cx+20,cy,cx+28,cy],[cx,cy-28,cx,cy-20],[cx,cy+20,cx,cy+28]].forEach(([x1,y1,x2,y2])=>{
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  });
+  ctx.restore();
+}
+
+const var_gold='#ffd54f';
+
+// ============================================================
+// Info panel
+// ============================================================
+function updateInfoPanel(objects){
+  const nearby=getNearby(objects,20);
+  const closest=nearby[0];
+
+  if(closest&&closest._dist<18){
+    document.getElementById('object-name').textContent=`✦ ${closest.name}`;
+    document.getElementById('object-desc').textContent=closest.desc||'';
+    document.getElementById('object-name').style.color=closest._dist<6?'#ffd54f':'rgba(255,213,79,0.7)';
+  } else {
+    document.getElementById('object-name').textContent='空を探しています...';
+    document.getElementById('object-desc').textContent='スマホを空に向けて動かしてください';
+    document.getElementById('object-name').style.color='rgba(232,244,253,0.35)';
+  }
+
+  const tags=getNearby(objects,55).filter(o=>o.alt>-5).slice(0,10);
+  const list=document.getElementById('nearby-list');list.innerHTML='';
+  for(const o of tags){
+    const tag=document.createElement('span');
+    tag.className=`nearby-tag ${o.type}`;
+    tag.textContent=o.name;
+    tag.onclick=()=>openDetail(o);
+    list.appendChild(tag);
+  }
+
+  document.getElementById('bearing-val').textContent=`${Math.round(bearing)}°`;
+  document.getElementById('elevation-val').textContent=`${Math.round(elevation)}°`;
+  document.getElementById('season-val').textContent=getSeason();
+}
+
+function getSeason(){const m=new Date().getMonth()+1;if(m>=3&&m<=5)return'春';if(m>=6&&m<=8)return'夏';if(m>=9&&m<=11)return'秋';return'冬';}
+
+// ============================================================
+// Render
+// ============================================================
+let lastCalc=0,cachedObjects=[];
+
+function render(){
+  const now=Date.now();
+  if(now-lastCalc>5000){cachedObjects=getAllCelestialObjects();lastCalc=now;}
+  drawBgStars();
+  drawSkyView(cachedObjects);
+  updateInfoPanel(cachedObjects);
+  requestAnimationFrame(render);
+}
+
+function updateTime(){
+  const now=new Date();
+  document.getElementById('time-display').textContent=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} JST`;
+}
+</script>
+</body>
+</html>
