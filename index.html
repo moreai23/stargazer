@@ -662,46 +662,22 @@ function smoothLinear(prev,curr,factor){
 function handleOrientation(e){
   orientationReceived=true;
 
-  // 精度情報
   if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
-  // 方位（bearing）
+  // 方位（平滑化強め）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    const factor=(compassAccuracy!==null&&(compassAccuracy<0||compassAccuracy>30))?0.08:0.25;
-    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,factor);
+    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.12);
     bearing=bearingSmooth;
   }
 
-  // 仰角 — alpha/beta/gamma 3軸回転行列で正確に計算
-  // iPhoneの実測: 地面=0°, 正面=90°, 空=180°
-  if(e.beta!==null && e.gamma!==null){
-    const beta  = e.beta  * DEG;
-    const gamma = e.gamma * DEG;
-
-    // デバイスのZ軸（画面法線）の向きを計算
-    // 画面を上に向けたとき(beta=180°)にZ軸が真上を向く
-    const sinBeta  = Math.sin(beta);
-    const cosBeta  = Math.cos(beta);
-    const sinGamma = Math.sin(gamma);
-    const cosGamma = Math.cos(gamma);
-
-    // Z軸の垂直成分（仰角に対応）
-    // beta=90°(正面向き) → zVert=0(地平線)
-    // beta=180°(空向き)  → zVert=1(真上)
-    // beta=0°(地面向き)  → zVert=-1(真下)
-    const zVert = sinBeta * cosGamma;
-
-    // 仰角 = arcsin(zVert)
-    const rawElev = Math.asin(Math.max(-1, Math.min(1, zVert))) * RAD;
-    elevationSmooth = smoothLinear(elevationSmooth, rawElev, 0.3);
-    elevation = elevationSmooth;
-  } else if(e.beta!==null){
+  // 仰角（実績ある計算式: beta-90、平滑化強め）
+  if(e.beta!==null){
     const rawElev=Math.max(-30,Math.min(90,e.beta-90));
-    elevationSmooth=smoothLinear(elevationSmooth,rawElev,0.3);
+    elevationSmooth=smoothLinear(elevationSmooth,rawElev,0.12);
     elevation=elevationSmooth;
   }
 
