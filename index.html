@@ -662,33 +662,53 @@ function smoothLinear(prev,curr,factor){
 function handleOrientation(e){
   orientationReceived=true;
 
-  // 精度情報取得（iOS）
-  if(e.webkitCompassAccuracy!==undefined){
-    compassAccuracy=e.webkitCompassAccuracy;
-  }
+  // 精度情報
+  if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
+  // 方位（bearing）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    // 精度が悪い(-1または大きい値)場合は平滑化を弱める
-    const factor = (compassAccuracy!==null && (compassAccuracy<0 || compassAccuracy>30)) ? 0.08 : 0.25;
-    bearingSmooth = smoothAngle(bearingSmooth, rawBearing, factor);
-    bearing = bearingSmooth;
+    const factor=(compassAccuracy!==null&&(compassAccuracy<0||compassAccuracy>30))?0.08:0.25;
+    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,factor);
+    bearing=bearingSmooth;
   }
 
-  // 仰角
-  if(e.beta!==null){
-    const rawElev = Math.max(-30,Math.min(90,e.beta-90));
+  // 仰角 — alpha/beta/gamma 3軸回転行列で正確に計算
+  // iPhoneの実測: 地面=0°, 正面=90°, 空=180°
+  if(e.beta!==null && e.gamma!==null){
+    const beta  = e.beta  * DEG;
+    const gamma = e.gamma * DEG;
+
+    // デバイスのZ軸（画面法線）の向きを計算
+    // 画面を上に向けたとき(beta=180°)にZ軸が真上を向く
+    const sinBeta  = Math.sin(beta);
+    const cosBeta  = Math.cos(beta);
+    const sinGamma = Math.sin(gamma);
+    const cosGamma = Math.cos(gamma);
+
+    // Z軸の垂直成分（仰角に対応）
+    // beta=90°(正面向き) → zVert=0(地平線)
+    // beta=180°(空向き)  → zVert=1(真上)
+    // beta=0°(地面向き)  → zVert=-1(真下)
+    const zVert = sinBeta * cosGamma;
+
+    // 仰角 = arcsin(zVert)
+    const rawElev = Math.asin(Math.max(-1, Math.min(1, zVert))) * RAD;
     elevationSmooth = smoothLinear(elevationSmooth, rawElev, 0.3);
     elevation = elevationSmooth;
+  } else if(e.beta!==null){
+    const rawElev=Math.max(-30,Math.min(90,e.beta-90));
+    elevationSmooth=smoothLinear(elevationSmooth,rawElev,0.3);
+    elevation=elevationSmooth;
   }
 
-  // コンパス精度の警告表示
-  const warnEl = document.getElementById('compass-warn');
+  // コンパス精度警告
+  const warnEl=document.getElementById('compass-warn');
   if(warnEl){
-    if(compassAccuracy!==null && (compassAccuracy<0 || compassAccuracy>30)){
+    if(compassAccuracy!==null&&(compassAccuracy<0||compassAccuracy>30)){
       warnEl.style.display='block';
       warnEl.textContent='⚠ コンパス精度が低い — 8の字に振って校正';
     } else {
