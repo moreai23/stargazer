@@ -689,19 +689,18 @@ function handleOrientation(e){
 
   if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
-  // 方位（ジンバルロック対策）
+  // 方位（常に更新、平滑化で安定化）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    // beta > 90度（空向き）のとき、iOSは方位を180度反転して報告する
-    // → 180度補正して正しい方位に戻す
-    let correctedBearing = rawBearing;
-    if(e.beta !== null && e.beta > 90){
-      correctedBearing = (rawBearing + 180) % 360;
+    // beta>90°(空向き)のとき方位を180度補正
+    let correctedBearing=rawBearing;
+    if(e.beta!==null && e.beta>90){
+      correctedBearing=(rawBearing+180)%360;
     }
-    bearingSmooth=smoothAngle(bearingSmooth, correctedBearing, 0.12);
+    bearingSmooth=smoothAngle(bearingSmooth,correctedBearing,0.12);
     bearing=bearingSmooth;
   }
 
