@@ -696,7 +696,7 @@ function handleOrientation(e){
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    if(elevation < 45){
+    if(elevation < 35){
       bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.10);
       bearing=bearingSmooth;
     }
@@ -705,7 +705,7 @@ function handleOrientation(e){
 
   // 仰角ロック表示
   const lockEl=document.getElementById('elv-lock');
-  if(lockEl) lockEl.style.display = elevation>=45 ? 'block' : 'none';
+  if(lockEl) lockEl.style.display = elevation>=35 ? 'block' : 'none';
 
   // 仰角（実績ある計算式: beta-90、上限65°でクランプして高仰角の暴走を防ぐ）
   if(e.beta!==null){
