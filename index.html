@@ -102,6 +102,7 @@ canvas#skyview{position:absolute;inset:0;width:100%;height:100%;}
 
 <div id="demo-badge">DEMO MODE</div>
 <div id="compass-warn" style="position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:25;font-size:11px;color:rgba(255,100,100,0.9);background:rgba(60,10,10,0.85);border:1px solid rgba(255,100,100,0.4);border-radius:6px;padding:5px 12px;display:none;font-family:'Noto Sans JP',sans-serif;"></div>
+<div id="elv-lock" style="position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:25;font-size:11px;color:rgba(255,213,79,0.9);background:rgba(30,20,0,0.85);border:1px solid rgba(255,213,79,0.3);border-radius:6px;padding:5px 12px;display:none;font-family:'Noto Sans JP',sans-serif;">🔒 高仰角 — 方位固定中</div>
 <button id="ar-toggle" onclick="toggleAR()">📷 AR</button>
 
 <div id="ui">
@@ -689,22 +690,22 @@ function handleOrientation(e){
 
   if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
-  // 方位（仰角が高いほど更新を遅くする）
+  // 方位（仰角45度以上で固定）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    // 仰角0〜45°: 通常更新(0.10)
-    // 仰角45〜70°: 徐々に遅く(0.10→0.02)
-    // 仰角70°以上: ほぼ固定(0.01)
-    const elv = Math.max(0, elevation);
-    const factor = elv < 45 ? 0.10
-                 : elv < 70 ? 0.10 - (elv-45)/25*0.08
-                 : 0.01;
-    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,factor);
-    bearing=bearingSmooth;
+    if(elevation < 45){
+      bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.10);
+      bearing=bearingSmooth;
+    }
+    // 45度以上は最後の安定した方位を維持
   }
+
+  // 仰角ロック表示
+  const lockEl=document.getElementById('elv-lock');
+  if(lockEl) lockEl.style.display = elevation>=45 ? 'block' : 'none';
 
   // 仰角（実績ある計算式: beta-90、上限65°でクランプして高仰角の暴走を防ぐ）
   if(e.beta!==null){
