@@ -689,19 +689,25 @@ function handleOrientation(e){
 
   if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
-  // 方位（平滑化強め）
+  // 方位（高仰角時はロック — ジンバルロック対策）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.12);
-    bearing=bearingSmooth;
+    // 仰角が60度以上になったら方位の更新を止める
+    // （真上付近ではコンパスが不安定になるため）
+    const elvAbs = Math.abs(elevation);
+    if(elvAbs < 60){
+      bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.12);
+      bearing=bearingSmooth;
+    }
+    // 60度以上では最後の安定した方位を維持
   }
 
-  // 仰角（実績ある計算式: beta-90、平滑化強め）
+  // 仰角（実績ある計算式: beta-90、上限65°でクランプして高仰角の暴走を防ぐ）
   if(e.beta!==null){
-    const rawElev=Math.max(-30,Math.min(90,e.beta-90));
+    const rawElev=Math.max(-30,Math.min(65,e.beta-90));
     elevationSmooth=smoothLinear(elevationSmooth,rawElev,0.12);
     elevation=elevationSmooth;
   }
