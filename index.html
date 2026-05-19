@@ -689,13 +689,20 @@ function handleOrientation(e){
 
   if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
-  // 方位（補正なし・平滑化のみ）
+  // 方位（仰角が高いほど更新を遅くする）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.10);
+    // 仰角0〜45°: 通常更新(0.10)
+    // 仰角45〜70°: 徐々に遅く(0.10→0.02)
+    // 仰角70°以上: ほぼ固定(0.01)
+    const elv = Math.max(0, elevation);
+    const factor = elv < 45 ? 0.10
+                 : elv < 70 ? 0.10 - (elv-45)/25*0.08
+                 : 0.01;
+    bearingSmooth=smoothAngle(bearingSmooth,rawBearing,factor);
     bearing=bearingSmooth;
   }
 
