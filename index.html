@@ -518,7 +518,7 @@ function onSkyTap(e){
   const ty=(e.clientY-rect.top);
   const W=skyviewCanvas.clientWidth,H=skyviewCanvas.clientHeight;
   const cx=W/2,cy=H/2;
-  const fovH=60,fovV=180;
+  const fovH=60,fovV=160;
   const scaleX=W/fovH,scaleY=H/fovV;
 
   // タップ位置から方位・仰角を計算
@@ -764,7 +764,7 @@ function drawSkyView(objects){
   const ctx=skyviewCtx;
   const W=skyviewCanvas.clientWidth,H=skyviewCanvas.clientHeight;
   const cx=W/2,cy=H/2;
-  const fovH=60,fovV=180;
+  const fovH=60,fovV=160;
   const scaleX=W/fovH,scaleY=H/fovV;
 
   ctx.clearRect(0,0,W,H);
