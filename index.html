@@ -689,20 +689,20 @@ function handleOrientation(e){
 
   if(e.webkitCompassAccuracy!==undefined) compassAccuracy=e.webkitCompassAccuracy;
 
-  // 方位（高仰角時はロック — ジンバルロック対策）
+  // 方位（ジンバルロック対策）
   let rawBearing=null;
   if(e.webkitCompassHeading!==undefined) rawBearing=e.webkitCompassHeading;
   else if(e.alpha!==null) rawBearing=(360-e.alpha)%360;
 
   if(rawBearing!==null){
-    // 仰角が60度以上になったら方位の更新を止める
-    // （真上付近ではコンパスが不安定になるため）
-    const elvAbs = Math.abs(elevation);
-    if(elvAbs < 60){
-      bearingSmooth=smoothAngle(bearingSmooth,rawBearing,0.12);
-      bearing=bearingSmooth;
+    // beta > 90度（空向き）のとき、iOSは方位を180度反転して報告する
+    // → 180度補正して正しい方位に戻す
+    let correctedBearing = rawBearing;
+    if(e.beta !== null && e.beta > 90){
+      correctedBearing = (rawBearing + 180) % 360;
     }
-    // 60度以上では最後の安定した方位を維持
+    bearingSmooth=smoothAngle(bearingSmooth, correctedBearing, 0.12);
+    bearing=bearingSmooth;
   }
 
   // 仰角（実績ある計算式: beta-90、上限65°でクランプして高仰角の暴走を防ぐ）
