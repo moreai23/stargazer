@@ -10,8 +10,27 @@
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--sky);color:#e8f4fd;font-family:'Noto Sans JP',sans-serif;height:100dvh;overflow:hidden;user-select:none;}
 canvas#sky{position:fixed;inset:0;z-index:1;width:100%;height:100%;}
+/* カメラAR */
+#camera-bg{position:fixed;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;display:none;}
+#ar-overlay{position:fixed;inset:0;z-index:2;width:100%;height:100%;pointer-events:none;}
+/* ARモード切替ボタン */
+#ar-toggle{
+  position:fixed;bottom:calc(100dvh - 100%);right:14px;z-index:30;
+  font-family:'Orbitron',monospace;font-size:10px;font-weight:700;
+  letter-spacing:1px;color:var(--sky);background:var(--accent);
+  border:none;border-radius:20px;padding:7px 14px;cursor:pointer;
+  box-shadow:0 0 15px rgba(79,195,247,0.4);pointer-events:all;
+  display:none;
+}
 #ui{position:fixed;inset:0;z-index:10;pointer-events:none;display:flex;flex-direction:column;}
 #topbar{display:flex;justify-content:space-between;align-items:center;padding:14px 18px 10px;background:linear-gradient(to bottom,rgba(2,8,23,0.92),transparent);}
+#ar-btn{
+  font-family:'Orbitron',monospace;font-size:10px;font-weight:700;
+  letter-spacing:1px;color:var(--sky);background:var(--accent);
+  border:none;border-radius:16px;padding:6px 12px;cursor:pointer;
+  pointer-events:all;box-shadow:0 0 10px rgba(79,195,247,0.3);
+}
+#ar-btn.active{background:#ff6b6b;box-shadow:0 0 10px rgba(255,107,107,0.4);color:#fff;}
 #logo{font-family:'Orbitron',monospace;font-size:16px;font-weight:900;letter-spacing:3px;color:var(--accent);text-shadow:0 0 20px rgba(79,195,247,0.6);}
 #location-badge{font-size:10px;color:rgba(232,244,253,0.6);text-align:right;line-height:1.6;}
 #skyview-wrap{flex:1;position:relative;overflow:hidden;}
@@ -71,6 +90,8 @@ canvas#skyview{position:absolute;inset:0;width:100%;height:100%;}
 </head>
 <body>
 <canvas id="sky"></canvas>
+<video id="camera-bg" autoplay playsinline muted></video>
+<canvas id="ar-overlay"></canvas>
 
 <div id="permission-screen">
   <div class="perm-icon">🔭</div>
@@ -81,13 +102,17 @@ canvas#skyview{position:absolute;inset:0;width:100%;height:100%;}
 
 <div id="demo-badge">DEMO MODE</div>
 <div id="compass-warn" style="position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:25;font-size:11px;color:rgba(255,100,100,0.9);background:rgba(60,10,10,0.85);border:1px solid rgba(255,100,100,0.4);border-radius:6px;padding:5px 12px;display:none;font-family:'Noto Sans JP',sans-serif;"></div>
+<button id="ar-toggle" onclick="toggleAR()">📷 AR</button>
 
 <div id="ui">
   <div id="topbar">
     <div id="logo">✦ STARGAZER</div>
-    <div id="location-badge">
-      <span id="lat-lon">位置情報取得中...</span><br>
-      <span id="time-display">--:--</span>
+    <div style="display:flex;align-items:center;gap:10px;pointer-events:all;">
+      <button id="ar-btn" onclick="toggleAR()">📷 AR</button>
+      <div id="location-badge">
+        <span id="lat-lon">位置情報取得中...</span><br>
+        <span id="time-display">--:--</span>
+      </div>
     </div>
   </div>
   <div id="skyview-wrap">
@@ -778,8 +803,8 @@ function drawSkyView(objects){
     }
   }
 
-  // 地面
-  if(horizonY<H){
+  // 地面（ARモード時は透明）
+  if(horizonY<H && !arMode){
     const gG=ctx.createLinearGradient(0,horizonY,0,H);
     gG.addColorStop(0,'rgba(18,38,14,0.88)');
     gG.addColorStop(0.4,'rgba(12,26,9,0.96)');
@@ -974,6 +999,47 @@ function render(){
 function updateTime(){
   const now=new Date();
   document.getElementById('time-display').textContent=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} JST`;
+}
+
+// ============================================================
+// AR モード
+// ============================================================
+let arMode=false, cameraStream=null, arAlpha=1.0;
+
+async function toggleAR(){
+  if(!arMode) await startAR(); else stopAR();
+}
+
+async function startAR(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}
+    });
+    cameraStream=stream;
+    const video=document.getElementById('camera-bg');
+    video.srcObject=stream;
+    video.style.display='block';
+    document.getElementById('sky').style.display='none';
+    document.querySelector('#topbar').style.background='linear-gradient(to bottom,rgba(2,8,23,0.72),transparent)';
+    document.getElementById('info-panel').style.background='linear-gradient(to top,rgba(2,8,23,0.80),transparent)';
+    arMode=true; arAlpha=0.9;
+    const btn=document.getElementById('ar-btn');
+    btn.textContent='🌃 通常'; btn.classList.add('active');
+  } catch(err){
+    alert('カメラにアクセスできませんでした。\nSafariの設定でカメラを許可してください。\n\n'+err.message);
+  }
+}
+
+function stopAR(){
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}
+  const video=document.getElementById('camera-bg');
+  video.srcObject=null; video.style.display='none';
+  document.getElementById('sky').style.display='block';
+  document.querySelector('#topbar').style.background='linear-gradient(to bottom,rgba(2,8,23,0.92),transparent)';
+  document.getElementById('info-panel').style.background='linear-gradient(to top,rgba(2,8,23,0.97),transparent)';
+  arMode=false; arAlpha=1.0;
+  const btn=document.getElementById('ar-btn');
+  btn.textContent='📷 AR'; btn.classList.remove('active');
 }
 </script>
 </body>
